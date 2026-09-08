@@ -14,7 +14,7 @@ Current version: **0.7.1**. Release packages target **macOS 14+ / Apple Silicon 
 
 ### 1. Install
 
-**Publication pending:** the latest stable GitHub Release endpoint returned 404 during implementation. The command below is the intended installation entry; it becomes usable only after `install.sh` is on `main` and matching release assets are published. No public release is claimed here.
+Install the latest stable macOS arm64 release with the command below. If no compatible stable release is available, the script stops without installing.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/GrahamQuan/ytdock/main/install.sh | bash
@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/GrahamQuan/ytdock/main/install.sh |
 
 The script downloads the latest stable Apple Silicon package over HTTPS, verifies SHA256, then runs its installer. It needs no interactive answers and does not start the CLI. Network, missing-asset or checksum failures stop installation. SHA256 checks integrity; it does not replace Apple signing or notarization.
 
-For manual installation, obtain the ZIP from [GitHub Releases](https://github.com/GrahamQuan/ytdock/releases) once published, or use a locally built package:
+For manual installation, obtain the ZIP from [GitHub Releases](https://github.com/GrahamQuan/ytdock/releases) or use a locally built package:
 
 Extract the complete `ytdock-v0.7.1-macos-arm64.zip` archive and double-click `Install.command`. Installation is per user and does not require administrator privileges.
 
@@ -311,7 +311,7 @@ To add a language, copy `en.json` to `<language-code>.json`, translate its value
 
 ## Release preparation
 
-The manual [GitHub Actions workflow](.github/workflows/prepare-release.yml) tests and builds arm64 artifacts without publishing. Update `pyproject.toml` and `uv.lock`, run the checks and package command, then separately create `v<version>` and upload both archives with their `.sha256` files to a stable Release. Verify public URLs and the curl installation before removing the publication-pending notice. ZIP and tar.gz contain the same program files.
+The manual [GitHub Actions workflow](.github/workflows/prepare-release.yml) tests and builds arm64 artifacts without publishing. Update `pyproject.toml` and `uv.lock`, run the checks and package command, then separately create `v<version>` and upload both archives with their `.sha256` files to a stable Release. Verify public URLs, checksums and the curl installation after publication. ZIP and tar.gz contain the same program files.
 
 Linux, WSL2 and Intel are not supported release targets. A second Mac and Apple notarization have not been validated. Current local verification is recorded in [the YTDock plan](specs/ytdock-installation.md).
 

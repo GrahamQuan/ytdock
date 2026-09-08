@@ -14,7 +14,7 @@
 
 ### 1. 安装程序
 
-**尚待发布：** 实现期间，GitHub 最新稳定 Release 接口返回 404。以下是目标安装入口；必须先将 `install.sh` 放到 `main`，并发布配套安装包与校验文件后才能使用。目前不宣称公开安装已可用。
+以下命令安装最新稳定版 macOS arm64 安装包。如果没有兼容的稳定 Release，脚本会停止，不执行安装。
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/GrahamQuan/ytdock/main/install.sh | bash
@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/GrahamQuan/ytdock/main/install.sh |
 
 脚本通过 HTTPS 下载最新稳定 Apple Silicon 包，验证 SHA256 后调用安装器，无需输入回答，也不会自动启动 CLI。网络失败、产物缺失或校验失败时停止安装。SHA256 只检查完整性，不能替代 Apple 签名或公证。
 
-手动安装可在发布后从 [GitHub Releases](https://github.com/GrahamQuan/ytdock/releases) 获取 ZIP，或使用本地构建的安装包：
+手动安装可从 [GitHub Releases](https://github.com/GrahamQuan/ytdock/releases) 获取 ZIP，或使用本地构建的安装包：
 
 完整解压 `ytdock-v0.7.1-macos-arm64.zip`，双击 `Install.command`。程序安装到当前用户目录，无需管理员权限。
 
@@ -136,7 +136,7 @@ Select language / 选择语言
 
 检查页显示视频信息、字幕条数、保留音轨和输出参数。**Enter** 直接烧录，**Esc** 返回并保留两个路径。输出为 Downloads 下的 `原文件名_with-subtitle.mp4`：H.265 / hvc1、CRF 27、medium、yuv420p、faststart，保留尺寸、宽高比和实际帧率。仅保留默认音轨（没有默认标记时取第一轨），AAC 复制，其他编码转为 AAC 192 kbps；无音频不添加音轨，多音轨会提前提示。
 
-完成媒体检查、完整解码及字幕抽帧对比后，只发布带字幕成品。输入文件保持不变，重名自动加数字后缀。处理中 **Ctrl+C** 等待取消和清理后返回字幕输入页；成功后清空路径，可继续处理下一项。本功能尚未重新生成安装包。
+完成媒体检查、完整解码及字幕抽帧对比后，只发布带字幕成品。输入文件保持不变，重名自动加数字后缀。处理中 **Ctrl+C** 等待取消和清理后返回字幕输入页；成功后清空路径，可继续处理下一项。
 
 ## 压缩本地视频
 
@@ -303,7 +303,7 @@ uv run python scripts/smoke_release.py build/release/ytdock-v0.7.1-macos-arm64/y
 
 ## 发布准备
 
-手动触发的 [GitHub Actions 工作流](.github/workflows/prepare-release.yml) 运行测试并构建 arm64 产物，不发布 Release。先更新 `pyproject.toml` 和 `uv.lock`，测试并打包；之后单独创建 `v<version>` 标签，将两个归档及各自的 `.sha256` 上传到稳定 Release。验证公开地址和 curl 安装成功后，才移除“尚待发布”说明。ZIP 与 tar.gz 包含相同程序内容。
+手动触发的 [GitHub Actions 工作流](.github/workflows/prepare-release.yml) 运行测试并构建 arm64 产物，不发布 Release。先更新 `pyproject.toml` 和 `uv.lock`，测试并打包；之后单独创建 `v<version>` 标签，将两个归档及各自的 `.sha256` 上传到稳定 Release。发布后验证公开地址、校验文件和 curl 安装。ZIP 与 tar.gz 包含相同程序内容。
 
 不发布 Linux、WSL2 或 Intel 安装包。另一台 Mac 和 Apple 公证尚未验证；本次实际验证记录见 [YTDock 计划](specs/ytdock-installation.md)。
 

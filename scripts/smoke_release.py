@@ -2,12 +2,16 @@
 
 import argparse
 import asyncio
+import fcntl
 import os
 import pty
+import re
 import select
+import struct
 import subprocess
 import sys
 import tempfile
+import termios
 import time
 from pathlib import Path
 
@@ -28,6 +32,7 @@ def run(args, env):
 
 def terminal_smoke(executable, env):
     master, slave = pty.openpty()
+    fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 80, 0, 0))
     process = subprocess.Popen(
         [str(executable)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True
     )
@@ -35,23 +40,28 @@ def terminal_smoke(executable, env):
     output = b""
     try:
         deadline = time.monotonic() + 30
-        while b"YTDock" not in output and time.monotonic() < deadline:
+        while b"Download" not in output and time.monotonic() < deadline:
             ready, _, _ = select.select([master], [], [], 0.2)
             if ready:
                 output += os.read(master, 65536)
             if process.poll() is not None:
                 break
-        if b"YTDock" not in output:
+        if b"Download" not in output:
             raise RuntimeError("冻结界面启动失败：" + output.decode(errors="replace"))
+
+        def contains(data, text):
+            # Full-screen redraws may represent spaces using cursor movement.
+            plain = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", data.decode(errors="replace"))
+            return "".join(text.split()) in "".join(plain.split())
 
         def wait_for(text):
             received = b""
             deadline = time.monotonic() + 10
-            while text.encode() not in received and time.monotonic() < deadline:
+            while not contains(received, text) and time.monotonic() < deadline:
                 ready, _, _ = select.select([master], [], [], 0.1)
                 if ready:
                     received += os.read(master, 65536)
-            if text.encode() not in received:
+            if not contains(received, text):
                 raise RuntimeError("冻结界面切换失败：" + received.decode(errors="replace"))
 
         os.write(master, b"draft-url\t")
@@ -67,7 +77,15 @@ def terminal_smoke(executable, env):
         os.write(master, b"\x1b")
         wait_for("draft-url")
         os.write(master, b"\x03")
-        if process.wait(timeout=15) != 130:
+        deadline = time.monotonic() + 15
+        while process.poll() is None and time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.1)
+            if ready:
+                try:
+                    os.read(master, 65536)
+                except OSError:
+                    break
+        if process.wait(timeout=1) != 130:
             raise RuntimeError("终端 Ctrl+C 退出码错误")
     finally:
         if process.poll() is None:
