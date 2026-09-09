@@ -1,0 +1,105 @@
+name: Release macOS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ytdock-stable-release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        name: Read project version
+        run: |
+          python3 - <<'PY'
+          import os, re, tomllib
+          from pathlib import Path
+          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+', version):
+              raise SystemExit('A stable major.minor.patch version is required')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'version={version}\n')
+          PY
+      - id: plan
+        uses: actions/github-script@v7
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        with:
+          script: |
+            const { plan } = require('./scripts/github-release.cjs');
+            await plan({ github, context, core });
+
+  build:
+    needs: plan
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+      - name: Check platform and install test dependency
+        run: |
+          test "$(uname -m)" = arm64
+          brew install ffmpeg
+      - name: Test
+        run: |
+          uv sync --locked --group dev --group package
+          uv run pytest -q
+          uv run ruff check src tests scripts packaging
+          uv run ruff format --check src tests scripts packaging
+          node --test tests/github-release.test.cjs
+          bash -n install.sh
+      - name: Build and verify isolated installation
+        run: ./package.command
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ytdock-${{ needs.plan.outputs.version }}-macos-arm64
+          path: |
+            dist/ytdock-v${{ needs.plan.outputs.version }}-macos-arm64.zip
+            dist/ytdock-v${{ needs.plan.outputs.version }}-macos-arm64.zip.sha256
+            dist/ytdock-v${{ needs.plan.outputs.version }}-macos-arm64.tar.gz
+            dist/ytdock-v${{ needs.plan.outputs.version }}-macos-arm64.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+      - name: Retain build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-build-logs
+          path: build/release/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+  publish:
+    needs: [plan, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ytdock-${{ needs.plan.outputs.version }}-macos-arm64
+          path: dist
+      - uses: actions/github-script@v7
+        env:
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+        with:
+          script: |
+            const { publish } = require('./scripts/github-release.cjs');
+            await publish({ github, context, core });

@@ -346,3 +346,11 @@ Download verification compares the output with measured source-stream durations.
 The local subtitle confirmation page offers “Confirm and continue” and “Cancel and go back”. Use ↑↓ to select, Enter to apply, or Esc to return; confirming is selected by default.
 
 On the download selection page, Tab / Shift+Tab moves between Resolution, Subtitles and Confirm panels. ↑↓ changes options only in the active panel, highlighted by its border color. Enter starts downloading only from Confirm; Esc goes back. Unavailable subtitle panels are skipped.
+
+### Automatic releases from main
+
+The `Release macOS` workflow runs on pushes to `main` and can be started manually on `main`. To release, increase `[project].version` in `pyproject.toml`, run `uv lock`, and push both changes. The version is not auto-incremented. An already published version is skipped without rebuilding or overwriting assets; a new version must be higher than existing stable releases.
+
+For a new version, Actions runs the tests and isolated packaging checks on macOS 14 arm64, then uploads ZIP/tar.gz and their SHA256 files. Only the publication job receives `contents: write`; it creates the tag at the tested commit, uploads to a draft, and publishes it as latest only after all four uploads succeed. Failed uploads leave a draft that can be retried at the same commit. Conflicting tags are never moved; if source fixes are needed after a tag was created, use a new version.
+
+The existing manual `Prepare macOS release (no publication)` workflow remains available. CI does not validate live YouTube downloads, Apple notarization, another Mac, or real cross-version self-upgrade. No personal access token is required; the workflow uses GitHub's repository token.
