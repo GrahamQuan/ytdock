@@ -8,7 +8,7 @@
 - **压缩**：提供「体积优先」和「画质优先」，保留源尺寸、宽高比和实际帧率，包括 60fps。
 - **文件保护**：不覆盖已有文件，不修改压缩源文件；取消或失败时清理本次任务的半成品。
 
-当前版本 **0.7.1**，提供 **macOS 14+ / Apple Silicon（arm64）** 安装包。
+当前版本 **0.8.0**，提供 **macOS 14+ / Apple Silicon（arm64）** 安装包。
 
 ## 快速开始
 
@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/GrahamQuan/ytdock/main/install.sh |
 
 手动安装可从 [GitHub Releases](https://github.com/GrahamQuan/ytdock/releases) 获取 ZIP，或使用本地构建的安装包：
 
-完整解压 `ytdock-v0.7.1-macos-arm64.zip`，双击 `Install.command`。程序安装到当前用户目录，无需管理员权限。
+完整解压 `ytdock-v0.8.0-macos-arm64.zip`，双击 `Install.command`。程序安装到当前用户目录，无需管理员权限。
 
 | 依赖 | 是否需要自行安装 |
 |---|---|
@@ -268,10 +268,10 @@ uv run ytdock
 脚本同步锁定依赖，校验并构建 QuickJS，封装 Python 和项目依赖，执行隔离安装、启动、压缩、取消、升级和卸载自检，最后生成 ZIP、tar.gz 和各自的 SHA256：
 
 ```text
-dist/ytdock-v0.7.1-macos-arm64.zip
-dist/ytdock-v0.7.1-macos-arm64.zip.sha256
-dist/ytdock-v0.7.1-macos-arm64.tar.gz
-dist/ytdock-v0.7.1-macos-arm64.tar.gz.sha256
+dist/ytdock-v0.8.0-macos-arm64.zip
+dist/ytdock-v0.8.0-macos-arm64.zip.sha256
+dist/ytdock-v0.8.0-macos-arm64.tar.gz
+dist/ytdock-v0.8.0-macos-arm64.tar.gz.sha256
 ```
 
 QuickJS 版本及校验值见 [packaging/sources.json](packaging/sources.json)。许可证和相关源码随包放在 `ytdock/THIRD_PARTY`、`ytdock/SOURCES`。构建缓存位于 `build/` 和 `.runtime/`；不会下载、构建或内置 FFmpeg/ffprobe 及其专用编码库。
@@ -282,7 +282,7 @@ QuickJS 版本及校验值见 [packaging/sources.json](packaging/sources.json)�
 uv run pytest -q
 uv run ruff check src tests scripts packaging
 uv run ruff format --check src tests scripts packaging
-uv run python scripts/smoke_release.py build/release/ytdock-v0.7.1-macos-arm64/ytdock --online
+uv run python scripts/smoke_release.py build/release/ytdock-v0.8.0-macos-arm64/ytdock --online
 ```
 
 `--online` 额外使用公开短视频验证安装版下载、发布和取消。媒体与安装验收使用临时目录；启动器在 PTY 和精简 PATH 下验证。请串行运行安装包自检，避免触发单实例保护。
@@ -322,9 +322,9 @@ uv run python scripts/smoke_release.py build/release/ytdock-v0.7.1-macos-arm64/y
 
 - [全屏界面与任务记录规格](specs/fullscreen-tasks.md)
 
-## 版本、升级与启动检查（开发版）
+## 版本、升级与启动检查
 
-以下功能已在源码实现，**尚未包含在公开 v0.7.1 安装包中**。本次未重新打包，也未验证真实跨版本二进制升级。
+0.8.0 包含以下功能。0.7.1 不支持 `--upgrade`，请使用一键安装命令或新版安装包升级到 0.8.0。真实跨版本自升级尚未验证。
 
 ```sh
 ytdock --version   # 同样支持 ytdock -v
@@ -333,7 +333,7 @@ ytdock --upgrade
 
 版本查询输出 `YTDock <version>`，不联网、不检查 FFmpeg、不进入全屏。当前检出可执行 `uv run ytdock --version`；开发环境执行 `--upgrade` 会明确拒绝，不修改开发环境。
 
-未来包含这些改动的安装版可查询 GitHub 最新稳定 Release，显示本地与目标版本，通过 HTTPS 下载并校验 SHA256。本地版本相同或更高时不重装、不降级。升级前先退出其他实例，包括停留在输入页的实例。保留自定义安装目录和已有配置，不改视频或 FFmpeg。下载阶段 Ctrl+C 可取消；替换阶段完成安全收尾或回滚。独立更新进程继承全局锁，等待旧进程退出后才替换，并输出完成提示与启动命令；请保持终端打开，完成提示可能出现在 shell 提示符之后。Ctrl+O 语言选择仍是进程内状态，升级提示语言由 `--lang` 控制。
+安装版可查询 GitHub 最新稳定 Release，显示本地与目标版本，通过 HTTPS 下载并校验 SHA256。本地版本相同或更高时不重装、不降级。升级前先退出其他实例，包括停留在输入页的实例。保留自定义安装目录和已有配置，不改视频或 FFmpeg。下载阶段 Ctrl+C 可取消；替换阶段完成安全收尾或回滚。独立更新进程继承全局锁，等待旧进程退出后才替换，并输出完成提示与启动命令；请保持终端打开，完成提示可能出现在 shell 提示符之后。Ctrl+O 语言选择仍是进程内状态，升级提示语言由 `--lang` 控制。
 
 交互启动显示真实的 Python 组件、QuickJS、FFmpeg、ffprobe、Downloads、锁、清理和界面加载检查。成功项保留，待检查项弱化，慢速子进程不阻塞活动指示器。Ctrl+C 等待安全清理并恢复终端；失败报告在退出备用屏幕后重新打印。帮助、版本、`--check`、安装、卸载、升级保持普通输出，各操作参数互斥。反馈从程序入口执行后开始，不包含 macOS 或打包运行时加载程序之前的等待。
 

@@ -40,13 +40,13 @@ def terminal_smoke(executable, env):
     output = b""
     try:
         deadline = time.monotonic() + 30
-        while b"Download" not in output and time.monotonic() < deadline:
+        while b"YouTube URL" not in output and time.monotonic() < deadline:
             ready, _, _ = select.select([master], [], [], 0.2)
             if ready:
                 output += os.read(master, 65536)
             if process.poll() is not None:
                 break
-        if b"Download" not in output:
+        if b"YouTube URL" not in output:
             raise RuntimeError("冻结界面启动失败：" + output.decode(errors="replace"))
 
         def contains(data, text):
@@ -64,7 +64,7 @@ def terminal_smoke(executable, env):
             if not contains(received, text):
                 raise RuntimeError("冻结界面切换失败：" + received.decode(errors="replace"))
 
-        os.write(master, b"draft-url\t")
+        os.write(master, b"draft-url\t\x1b[C\t")
         wait_for("Local Video File Path")
         os.write(master, b"\x0f")
         wait_for(" / 选择语言")
@@ -112,6 +112,11 @@ def smoke(bundle, online=False):
         run([bundle / "ytdock", "--install", "--prefix", prefix], env)
         executable = prefix / "bin/ytdock"
         installed = prefix / "share/ytdock"
+        from ytdock.version import get_version
+
+        expected_version = "YTDock " + get_version()
+        for flag in ("--version", "-v"):
+            assert run([executable, flag], env).strip() == expected_version
         result = run([executable, "--check"], env)
         if str(installed / "runtime/qjs") not in result:
             raise RuntimeError("安装版没有使用内置 QuickJS")

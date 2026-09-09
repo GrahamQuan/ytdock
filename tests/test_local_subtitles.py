@@ -122,7 +122,7 @@ def test_dual_input_keeps_values_and_language_picker():
 def test_navigation_active_mode_is_styled():
     for mode in ui.MODES:
         fragments = ui.navigation(mode)
-        active = [text for style, text in fragments if style == "class:selected"]
+        active = [text for style, text in fragments if style == "class:navigation.active"]
         assert len(active) == 1 and active[0].startswith("[") and active[0].endswith("]")
 
 
