@@ -33,12 +33,14 @@ def candidates(name: str):
             yield os.path.abspath(path)
 
 
-def find_quickjs() -> str:
+def find_quickjs(runner=None) -> str:
     found = []
     for path in candidates("qjs"):
         try:
             # Bellard QuickJS prints --help and exits 1; this is not a failed check.
-            result = subprocess.run([path, "--help"], capture_output=True, text=True, timeout=10)
+            result = (runner or subprocess.run)(
+                [path, "--help"], capture_output=True, text=True, timeout=10
+            )
             output = result.stdout + result.stderr
             version = re.search(r"QuickJS version (\d+)-(\d+)-(\d+)", output)
             ng = re.search(r"QuickJS-ng version (\d+)\.(\d+)\.(\d+)", output)
@@ -55,7 +57,7 @@ def find_quickjs() -> str:
     )
 
 
-def check(**media_options) -> dict:
+def check_python():
     if sys.platform != "darwin":
         raise UserError(t("only_macos_is_supported"))
     missing = []
@@ -70,7 +72,28 @@ def check(**media_options) -> dict:
             + ", ".join(missing)
             + t("reinstall_the_app_or_run_uv_sync")
         )
+    from importlib.util import find_spec
+
+    for module in ("yt_dlp", "yt_dlp_ejs", "prompt_toolkit", "Foundation"):
+        try:
+            if find_spec(module) is None:
+                raise ImportError(module)
+        except ImportError:
+            raise UserError(
+                t("missing_python_dependencies") + module + t("reinstall_the_app_or_run_uv_sync")
+            ) from None
+
+
+def check(progress=None, runner=None, **media_options) -> dict:
     from .ffmpeg import find_media_tools
 
-    quickjs = find_quickjs()
-    return find_media_tools(**media_options) | {"quickjs": quickjs}
+    notify = progress or (lambda *args: None)
+    notify("python", "checking")
+    check_python()
+    notify("python", "ready")
+    notify("quickjs", "checking")
+    quickjs = find_quickjs(runner)
+    notify("quickjs", "ready")
+    notify("ffmpeg", "checking")
+    extra = {"progress": progress, "runner": runner} if progress or runner else {}
+    return find_media_tools(**media_options, **extra) | {"quickjs": quickjs}

@@ -42,9 +42,9 @@ def search_directories():
             yield path
 
 
-def output(path: Path, *args) -> str:
+def output(path: Path, *args, runner=None) -> str:
     try:
-        result = subprocess.run(
+        result = (runner or subprocess.run)(
             [str(path), *args],
             stdin=subprocess.DEVNULL,
             capture_output=True,
@@ -70,27 +70,32 @@ def codec_names(text: str) -> set[str]:
     return set(re.findall(r"^\s*[VAS][A-Z.]{5}\s+(\S+)", text, re.MULTILINE))
 
 
-def validate(path: Path, kind: str):
+def validate(path: Path, kind: str, runner=None):
+    def read(*args):
+        return output(path, *args, runner=runner) if runner else output(path, *args)
+
     if not path.is_file():
         raise UserError(t("executable_not_found"))
     if not os.access(path, os.X_OK):
         raise UserError(t("not_executable"))
-    if not output(path, "-version").startswith(kind + " version "):
+    if not read("-version").startswith(kind + " version "):
         raise UserError(t("not_a_recognized_executable", p0=kind))
-    decoders = codec_names(output(path, "-hide_banner", "-decoders"))
+    decoders = codec_names(read("-hide_banner", "-decoders"))
     missing = [name for name, aliases in DECODERS.items() if not aliases & decoders]
     if missing:
         raise UserError(t("missing_decoders") + "、".join(missing))
     if kind == "ffmpeg":
-        encoders = codec_names(output(path, "-hide_banner", "-encoders"))
+        encoders = codec_names(read("-hide_banner", "-encoders"))
         missing = sorted({"libx264", "aac"} - encoders)
         if missing:
             raise UserError(t("missing_encoders") + "、".join(missing))
-        if "-fps_mode" not in output(path, "-hide_banner", "-h", "full"):
+        if "-fps_mode" not in read("-hide_banner", "-h", "full"):
             raise UserError(t("missing_fps_mode_support_use_a_newer_complete_ffmpeg_build"))
 
 
-def find_media_tools(directory=None, ffmpeg=None, ffprobe=None, warn=None) -> dict:
+def find_media_tools(
+    directory=None, ffmpeg=None, ffprobe=None, warn=None, progress=None, runner=None
+) -> dict:
     # Command-line choices override environment choices as a group.
     if not any((directory, ffmpeg, ffprobe)):
         directory = os.environ.get("YTDOCK_FFMPEG_DIR")
@@ -128,7 +133,12 @@ def find_media_tools(directory=None, ffmpeg=None, ffprobe=None, warn=None) -> di
         key = (str(path.resolve()), kind)
         if key not in cache:
             try:
-                validate(path, kind)
+                if progress:
+                    progress(kind, "checking")
+                if runner:
+                    validate(path, kind, runner=runner)
+                else:
+                    validate(path, kind)
                 cache[key] = None
                 valid[kind].append(path)
             except UserError as exc:
@@ -137,6 +147,9 @@ def find_media_tools(directory=None, ffmpeg=None, ffprobe=None, warn=None) -> di
         return cache[key]
 
     def success(fm, probe):
+        if progress:
+            progress("ffmpeg", "ready")
+            progress("ffprobe", "ready")
         if explicit and explicit_errors:
             message = t(
                 "the_specified_ffmpeg_candidate_is_unavailable_using_other_compatible_tools"
@@ -153,6 +166,15 @@ def find_media_tools(directory=None, ffmpeg=None, ffprobe=None, warn=None) -> di
     # Same-directory pairs have priority. Only then pair individually verified tools.
     if valid["ffmpeg"] and valid["ffprobe"]:
         return success(valid["ffmpeg"][0], valid["ffprobe"][0])
+    if progress:
+        # A usable ffprobe must not be marked failed just because FFmpeg is missing
+        # (or vice versa). Emit actual failed kinds last for the startup report.
+        for kind in valid:
+            if valid[kind]:
+                progress(kind, "ready")
+        for kind in valid:
+            if not valid[kind]:
+                progress(kind, "failed")
     details = (
         "\n".join(errors)
         if errors

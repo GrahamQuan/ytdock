@@ -2,7 +2,7 @@
 
 **English** · [简体中文](README.zh-CN.md)
 
-Download YouTube videos, compress local videos, or burn local SRT subtitles in your macOS terminal. Press **Tab** to switch modes. Finished MP4 files are saved to the system Downloads folder by default.
+Download YouTube videos, compress local videos, or burn local SRT subtitles in your macOS terminal. Use **Tab / Shift+Tab** to move focus; **← / →** switches pages only while the top navigation is focused. Finished MP4 files are saved to the system Downloads folder by default.
 
 - **Download:** choose an available resolution and frame rate for a single YouTube video or Short.
 - **Compress:** choose Smaller file or Higher quality while keeping the source dimensions, aspect ratio and actual frame rate, including 60fps.
@@ -63,7 +63,8 @@ The installer cannot change its parent terminal. `~/.local/bin/ytdock` works imm
 
 | Action | Key |
 |---|---|
-| Cycle Download → Compress → Subtitles → Tasks → Download when idle | Tab (next) / Shift+Tab (previous) |
+| Move focus between navigation and content | Tab / Shift+Tab |
+| Cycle pages while navigation is focused | ← / → |
 | Open the language picker on input and selection pages | Ctrl+O |
 | Submit a URL or file path | Enter |
 | Choose a resolution or compression mode | ↑ / ↓ |
@@ -80,7 +81,7 @@ The **Tasks** tab lists this run’s records, newest first. Use **↑ / ↓**, *
 
 Inspection, selection and processing share one record, including format reselection. Returning before processing marks it “Not started”. Success returns to the same input page and clears the submitted input; failure or cancellation preserves it. Each mode keeps its result notice until the next task starts. Partial saves and cleanup failures are explicitly reported, with full details in Tasks. Published files remain protected.
 
-Tab switching and language selection are disabled during processing and cleanup. Use a terminal at least **52 columns × 20 rows**; enlarge it when the resize message appears. Lists and details scroll, and layout responds to resizing and language changes. `--help`, `--check`, installation and uninstallation use ordinary terminal output.
+Focus movement, page switching and language selection are disabled during processing and cleanup. Use a terminal at least **52 columns × 20 rows**; enlarge it when the resize message appears. Lists and details scroll, and layout responds to resizing and language changes. `--help`, `--check`, installation and uninstallation use ordinary terminal output.
 
 ## Interface language
 
@@ -111,7 +112,7 @@ Video titles, file paths, audio-language metadata and output filenames are not t
 
 1. Paste a single video URL on the default Download page and press Enter.
 2. Review the title, duration, actual dimensions, frame rate and estimated size.
-3. Choose a resolution with ↑ / ↓, then press Enter to download.
+3. Choose a resolution with ↑ / ↓. Tab moves to subtitles (when available), then Confirm; only Enter in Confirm starts the download.
 
 The default is the highest available resolution up to 1080p. If every option exceeds 1080p, the lowest option is selected. Different frame rates at the same resolution are listed separately, and options requiring transcoding are labeled in advance.
 
@@ -125,7 +126,7 @@ Choosing a single track does not establish the original language for captions. S
 
 ## Optional original-language subtitles
 
-When captions in the original audio language are available, the resolution page shows **S Subtitle settings**. Select **With subtitles** to enable automatic burning; each new video defaults to no subtitles. If no usable matching track exists, the subtitle setting is hidden. Manual captions take priority over native automatic captions; the page identifies the actual source. Translated tracks, translation and speech recognition are not supported.
+When captions in the original audio language are available, the resolution page shows an inline **Subtitles** panel (Tab / Shift+Tab selects a panel; ↑↓ changes its option). Select **With subtitles** to enable automatic burning; each new video defaults to no subtitles. If no usable matching track exists, the subtitle setting is hidden. Manual captions take priority over native automatic captions; the page identifies the actual source. Translated tracks, translation and speech recognition are not supported.
 
 The app first saves and displays `Title [ID].mp4` (standard H.264/AAC) and `Title [ID].<language>.srt` (the processed, single-line, non-overlapping original-language captions, at most 42 characters per cue). It then automatically creates `Title [ID]_with-subtitle.mp4`: **H.265/HEVC, hvc1, CRF 27, medium, yuv420p and faststart**, with AAC copied and the original resolution, aspect ratio and frame rate retained. Silent videos remain silent. White text has a thin black outline and no shadow; overflowing text is reduced to fit.
 
@@ -137,7 +138,7 @@ Existing names are never overwritten. **Files already saved remain after later c
 
 ## Burn a local SRT subtitle file
 
-Press **Tab** until **[Subtitles]** is highlighted. Paste a video path and a **UTF-8 SRT** path into the two frames. Use **↑ / ↓** to switch fields, **Enter** to inspect, and **Tab** to change mode. Paths support spaces, quotes, `~` and Finder drag-and-drop escaping. **Ctrl+O** opens the language picker without losing your input.
+Focus the top navigation with **Tab**, then select **[Subtitles]** using **← / →** and press **Tab** to enter the first field. Paste a video path and a **UTF-8 SRT** path into the two frames. Use **Tab / Shift+Tab** to move between navigation and both fields, and **Enter** to inspect. Paths support spaces, quotes, `~` and Finder drag-and-drop escaping. **Ctrl+O** opens the language picker without losing your input.
 
 You can supply an externally AI-translated SRT in any language. This mode does not translate or upload files. It retains cue text, line breaks and segmentation rather than applying the YouTube 42-character splitting rule. Invalid UTF-8, overlapping/out-of-order cues and invalid times are rejected. End overruns up to 2 seconds are shortened with a notice; larger overruns or cues wholly outside the video are rejected. Font rendering and every distinct cue are checked; missing glyphs or overflow require fixing the font or SRT before proceeding. SRT files are limited to 20 MB; ASS overrides and control characters are unsupported.
 
@@ -147,7 +148,7 @@ Only the finished video is published, after media checks, full decoding and subt
 
 ## Compress a local video
 
-1. Press Tab on an input page to open Compress.
+1. Focus the navigation with Tab and use ← / → to select Compress; press Tab to enter its input.
 2. Paste an absolute video-file path, or drag the file from Finder into the terminal, and press Enter.
 3. Review the source information and selected audio track, choose a mode, then press Enter.
 
@@ -320,3 +321,28 @@ Linux, WSL2 and Intel are not supported release targets. A second Mac and Apple 
 - [YTDock naming contract / 命名统一规格](specs/ytdock-naming.md)
 
 - [Full-screen interface and task records](specs/fullscreen-tasks.md)
+
+## Version, upgrades and startup checks (development)
+
+These changes are implemented in source and **are not included in the published v0.7.1 package yet**. No new package or real cross-version binary upgrade was validated in this change.
+
+```sh
+ytdock --version   # also: ytdock -v
+ytdock --upgrade
+```
+
+Version queries print `YTDock <version>` without network access, FFmpeg checks or a full-screen interface. For this checkout use `uv run ytdock --version`. Development environments reject `--upgrade` without modifying anything.
+
+In a future build containing these changes, the installed app can query the latest stable GitHub Release, show both versions, and download a matching package over HTTPS with SHA256 verification. Equal or newer local versions are not reinstalled or downgraded. Exit other instances first, including those waiting for input. The updater preserves the custom installation directory and existing configuration, and does not change videos or FFmpeg. Ctrl+C cancels downloading; replacement finishes safely or rolls back. An independent updater waits for the old process to exit while retaining the global lock, then reports completion and the launch command. Keep the terminal open; its completion message may follow the shell prompt. Ctrl+O language choice remains per-process; `--lang` controls upgrade messages.
+
+Interactive startup displays real Python component, QuickJS, FFmpeg, ffprobe, Downloads, lock, cleanup and interface checks. Completed checks remain marked, pending checks are dimmed, and slow subprocess checks do not freeze the indicator. Ctrl+C waits for safe cleanup and restores the terminal; failures are reprinted outside the alternate screen. Help, version, `--check`, install, uninstall and upgrade keep ordinary output; action flags are mutually exclusive. Feedback begins when the program entry point executes, not before macOS or the bundled runtime loads the program.
+
+See the [startup and upgrade contract](specs/startup-upgrade.md) for implementation and validation limits.
+
+Subtitle timing uses the selected video stream duration consistently for YouTube downloads and local SRT imports (container duration is a fallback when absent). Downloaded SRT files are saved after timing correction; importing them with the same video does not repeat the correction. Local imports retain text and segmentation. End-time corrections within the existing 2-second tolerance report the actual milliseconds shortened.
+
+Download verification compares the output with measured source-stream durations. YouTube metadata is only a coarse completeness check (at least one second of tolerance for rounding); output verification retains its tighter tolerance and full decoding check. Failures identify the failed check and duration mismatches include expected/actual seconds.
+
+The local subtitle confirmation page offers “Confirm and continue” and “Cancel and go back”. Use ↑↓ to select, Enter to apply, or Esc to return; confirming is selected by default.
+
+On the download selection page, Tab / Shift+Tab moves between Resolution, Subtitles and Confirm panels. ↑↓ changes options only in the active panel, highlighted by its border color. Enter starts downloading only from Confirm; Esc goes back. Unavailable subtitle panels are skipped.

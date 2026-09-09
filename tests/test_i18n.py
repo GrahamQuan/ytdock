@@ -73,16 +73,18 @@ def test_language_picker_input_keeps_text_and_renders_language():
     set_language("en")
     output = RecordingOutput()
 
+    async def wait_for(predicate):
+        async with asyncio.timeout(3):
+            while not predicate():
+                await asyncio.sleep(0.01)
+
     async def scenario(pipe):
         task = asyncio.create_task(ui.read_input("compress", "/tmp/中文 file.mp4"))
-        await asyncio.sleep(0.1)
-        assert "Local Video File Path" in output.text
+        await wait_for(lambda: "Local Video File Path" in output.text)
         pipe.send_text("\x0f\x1b[B\r")
-        await asyncio.sleep(0.1)
-        assert get_language() == "zh-CN" and "本地视频文件路径" in output.text
+        await wait_for(lambda: get_language() == "zh-CN" and "本地视频文件路径" in output.text)
         pipe.send_text("\x0f\x1b[A\r")
-        await asyncio.sleep(0.1)
-        assert get_language() == "en"
+        await wait_for(lambda: get_language() == "en")
         pipe.send_text("\r")
         assert await task == ("submit", "/tmp/中文 file.mp4")
 
@@ -133,7 +135,7 @@ def test_language_picker_resolution_keeps_selection(tmp_path):
         pipe.send_text("\x1b[B\x0f\x1b[B\r")
         await asyncio.sleep(0.1)
         assert get_language() == "zh-CN"
-        pipe.send_text("\r")
+        pipe.send_text("\t\r")
         assert (await task).height == 720
 
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
@@ -219,7 +221,7 @@ def test_picker_does_not_submit_or_switch_parent(tmp_path):
         pipe.send_text("\r")
         await asyncio.sleep(0.1)
         assert not task.done() and get_language() == "zh-CN"
-        pipe.send_text("\r")
+        pipe.send_text("\t\r")
         assert (await task).height == 1080
 
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):

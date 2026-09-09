@@ -264,6 +264,7 @@ def work(request: dict):
         request["ffmpeg"],
         request["ffprobe"],
         fds,
+        subtitle_duration=bool(request.get("subtitles")),
     )
     if request.get("subtitles"):
         emit({"stage": "stage.preparing_subtitles"})

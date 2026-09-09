@@ -1,7 +1,6 @@
 """Single local-file compression, with read-only source identity and explicit streams."""
 
 import json
-import math
 import shlex
 import stat
 import subprocess
@@ -11,7 +10,7 @@ from pathlib import Path
 
 from .core import UserError, filename, safe_text, size
 from .i18n import t
-from .media import probe, rate, run, verify
+from .media import probe, rate, run, verify, video_duration
 
 PROFILES = {
     "size": {
@@ -187,12 +186,7 @@ def inspect(path: Path, ffprobe: str, pass_fds=()) -> dict:
     video = main_stream(videos, "video")
     validate_video(video)
     audio = main_stream(videos, "audio")
-    try:
-        duration = float(video.get("duration") or data["format"].get("duration"))
-        if not math.isfinite(duration) or duration <= 0:
-            raise ValueError
-    except (ValueError, TypeError, KeyError):
-        raise UserError(t("unable_to_determine_a_valid_duration_this_file_is_not")) from None
+    duration = video_duration(data, video)
     # Unknown/absent SAR conventionally means square pixels for these containers.
     source = dict(video)
     source.setdefault("sample_aspect_ratio", "1:1")

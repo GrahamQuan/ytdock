@@ -53,6 +53,9 @@ def test_real_output(tmp_path, video_codec, audio_codec, portrait):
     events = []
     source = process(video, None, output, choice, 1, FFMPEG, FFPROBE, events.append)
     verify(output, choice, 1, source, FFMPEG, FFPROBE)
+    assert verify(output, choice, 1, source, FFMPEG, FFPROBE, subtitle_duration=True) == float(
+        probe(output, FFPROBE)["streams"][0]["duration"]
+    )
     assert faststart(output)
     assert probe(output, FFPROBE)["streams"][0]["codec_name"] == "h264"
     assert (
@@ -103,3 +106,41 @@ def test_dimensions_and_audio_mismatch_rejected(tmp_path):
         with pytest.raises(UserError):
             process(video, None, tmp_path / "out.mp4", choice, 1, FFMPEG, FFPROBE, lambda e: None)
     assert not (tmp_path / "out.mp4").exists()
+
+
+def test_rounded_metadata_uses_measured_source_and_still_rejects_truncation(tmp_path):
+    video = tmp_path / "source.mp4"
+    subprocess.run(
+        [
+            FFMPEG,
+            "-v",
+            "error",
+            "-nostdin",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=size=160x90:rate=24:duration=2.34",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=duration=2.4",
+            "-c:v",
+            "libx264",
+            "-c:a",
+            "aac",
+            str(video),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    choice = dict(width=160, height=90, fps=24, has_audio=True, transcode=False)
+    output = tmp_path / "verified.mp4"
+    source = process(video, None, output, choice, 2, FFMPEG, FFPROBE, lambda e: None)
+    assert source["_ytdock_duration"] > 2.25
+    verify(output, choice, 2, source, FFMPEG, FFPROBE)
+    # A damaged/shortened output cannot pass just because metadata was rounded.
+    with pytest.raises(UserError, match="duration|时长"):
+        verify(output, choice, 2, dict(source, _ytdock_duration=5), FFMPEG, FFPROBE)
+    with pytest.raises(UserError, match="metadata|元数据"):
+        process(video, None, tmp_path / "bad.mp4", choice, 10, FFMPEG, FFPROBE, lambda e: None)
+    assert not (tmp_path / "bad.mp4").exists()

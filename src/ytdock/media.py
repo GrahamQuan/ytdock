@@ -102,6 +102,18 @@ def process(
     audio_streams = [s for s in audio_info["streams"] if s.get("codec_type") == "audio"]
     if bool(audio_streams) != choice["has_audio"]:
         raise UserError(t("the_actual_audio_streams_differ_from_the_selection_no_output"))
+    measured_durations = [video_duration(source, stream)]
+    if audio_streams:
+        measured_durations.append(video_duration(audio_info, audio_streams[0]))
+    measured_duration = max(measured_durations)
+    # YouTube metadata is commonly rounded to whole seconds. It is a coarse
+    # completeness guard, not the expected duration of the muxed output.
+    metadata_tolerance = max(1.0, min(2.0, duration * 0.005))
+    for track_duration in measured_durations:
+        if abs(track_duration - duration) > metadata_tolerance:
+            raise UserError(
+                t("verification.source_duration", expected=duration, actual=track_duration)
+            )
     vcopy = stream.get("codec_name") == "h264" and stream.get("pix_fmt") == "yuv420p"
     acopy = not audio_streams or audio_streams[0].get("codec_name") == "aac"
     transcode = not (vcopy and acopy)
@@ -182,7 +194,7 @@ def process(
                 )
     if transcode:
         emit({"stage": stage, "finished": True})
-    return stream
+    return dict(stream, _ytdock_duration=measured_duration)
 
 
 def faststart(path: Path) -> bool:
@@ -208,6 +220,17 @@ def faststart(path: Path) -> bool:
     return False
 
 
+def video_duration(info, stream):
+    """Use the selected picture stream's duration consistently across both entrances."""
+    try:
+        duration = float(stream.get("duration") or info["format"].get("duration"))
+        if not math.isfinite(duration) or duration <= 0:
+            raise ValueError
+        return duration
+    except (ValueError, TypeError, KeyError):
+        raise UserError(t("unable_to_determine_a_valid_duration_this_file_is_not")) from None
+
+
 def verify(
     output: Path,
     choice: dict,
@@ -219,6 +242,7 @@ def verify(
     *,
     video_codec="h264",
     video_tag=None,
+    subtitle_duration=False,
 ):
     if not output.is_file() or output.stat().st_size == 0:
         raise UserError(t("the_output_file_is_missing_or_empty"))
@@ -232,21 +256,30 @@ def verify(
         original_sar = Fraction(source.get("sample_aspect_ratio", "1:1").replace(":", "/"))
     except (ValueError, KeyError, ZeroDivisionError):
         raise UserError(t("invalid_output_duration_or_aspect_ratio")) from None
-    if not (
-        "mp4" in info["format"].get("format_name", "").split(",")
-        and stream.get("codec_name") == video_codec
-        and (video_tag is None or stream.get("codec_tag_string") == video_tag)
-        and stream.get("pix_fmt") == "yuv420p"
-        and len(audios) == int(choice["has_audio"])
-        and all(s.get("codec_name") == "aac" for s in audios)
-        and math.isfinite(actual_duration)
+    expected_duration = source.get("_ytdock_duration", duration)
+    checks = {
+        "container": "mp4" in info["format"].get("format_name", "").split(","),
+        "video_codec": stream.get("codec_name") == video_codec,
+        "video_tag": video_tag is None or stream.get("codec_tag_string") == video_tag,
+        "pixel_format": stream.get("pix_fmt") == "yuv420p",
+        "audio": len(audios) == int(choice["has_audio"])
+        and all(s.get("codec_name") == "aac" for s in audios),
+        "duration": math.isfinite(actual_duration)
         and actual_duration > 0
-        and abs(actual_duration - duration) <= max(0.25, min(2.0, duration * 0.005))
-        and abs(rate(stream) - rate(source)) <= 0.01
-        and sar == original_sar
-        and faststart(output)
-    ):
-        raise UserError(t("output_container_codec_audio_duration_frame_rate_or_aspect_ratio"))
+        and abs(actual_duration - expected_duration)
+        <= max(0.25, min(2.0, expected_duration * 0.005)),
+        "frame_rate": abs(rate(stream) - rate(source)) <= 0.01,
+        "aspect_ratio": sar == original_sar,
+        "faststart": faststart(output),
+    }
+    failed = [t("verification." + key) for key, passed in checks.items() if not passed]
+    if failed:
+        details = ", ".join(failed)
+        if not checks["duration"]:
+            details += t(
+                "verification.duration_values", expected=expected_duration, actual=actual_duration
+            )
+        raise UserError(t("verification.failed", details=details))
     if audios:
         try:
             if abs(float(audios[0]["duration"]) - actual_duration) > max(
@@ -279,4 +312,4 @@ def verify(
     )
     with output.open("rb") as file:
         os.fsync(file.fileno())
-    return actual_duration
+    return video_duration(info, stream) if subtitle_duration else actual_duration

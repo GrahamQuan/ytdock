@@ -4,15 +4,18 @@ import asyncio
 import time
 
 from prompt_toolkit.application import Application as ToolkitApplication
+from prompt_toolkit.application.current import get_app
+from prompt_toolkit.data_structures import Point
 from prompt_toolkit.filters import Condition
-from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
 from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.styles import Style
 from prompt_toolkit.utils import get_cwidth
-from prompt_toolkit.widgets import Frame, TextArea
+from prompt_toolkit.widgets import Frame as BaseFrame
 from prompt_toolkit.widgets import Label as BaseLabel
+from prompt_toolkit.widgets import TextArea
 
 from .controller import execute
 from .core import Choice, clock, default_choice, percent, safe_text, size
@@ -23,7 +26,20 @@ def Application(**kwargs):
     from .screen import current_screen
 
     screen = current_screen()
-    return screen.page(**kwargs) if screen else ToolkitApplication(**kwargs)
+    if screen:
+        return screen.page(**kwargs)
+    keys = KeyBindings()
+
+    @keys.add("tab")
+    def next_focus(event):
+        event.app.layout.focus_next()
+
+    @keys.add("s-tab")
+    def previous_focus(event):
+        event.app.layout.focus_previous()
+
+    kwargs["key_bindings"] = merge_key_bindings([kwargs.get("key_bindings", KeyBindings()), keys])
+    return ToolkitApplication(**kwargs)
 
 
 def navigation_label(mode):
@@ -38,12 +54,24 @@ STYLE = Style.from_dict(
     {
         "frame.border": "#5f87af",
         "selected": "bold #87d7af",
+        "navigation.border": "#87d7af bg:default noreverse",
+        "navigation.active": "bold #16251c bg:#87d7af noreverse",
         "title": "bold",
         "hint": "#888888",
         "resolution frame.border": "#87d7af",
         "subtitle frame.border": "#888888",
     }
 )
+
+
+def Frame(body, *, title="", style="", **kwargs):
+    def focused():
+        return get_app().layout.has_focus(body)
+
+    return HSplit(
+        [BaseFrame(body, title=title, style=style, **kwargs)],
+        style=lambda: "class:resolution" if focused() else "class:subtitle",
+    )
 
 
 class Label(BaseLabel):
@@ -179,7 +207,7 @@ def navigation(mode):
         label = t("mode." + key)
         fragments.append(
             (
-                "class:selected" if mode == key else "class:hint",
+                "class:navigation.active" if mode == key else "class:hint",
                 f"[{label}]" if mode == key else label,
             )
         )
@@ -207,15 +235,6 @@ async def read_subtitle_input(text):
     for field in fields:
         field.buffer.accept_handler = submit
 
-    @bindings.add("up")
-    @bindings.add("down")
-    def focus(event):
-        event.app.layout.focus(fields[1] if event.app.layout.has_focus(fields[0]) else fields[0])
-
-    @bindings.add("tab")
-    def switch(event):
-        event.app.exit(result=("switch", values()))
-
     exit_bindings(bindings, lambda event: event.app.exit(exception=KeyboardInterrupt()))
     app = Application(
         layout=Layout(
@@ -237,12 +256,23 @@ async def read_subtitle_input(text):
 
 
 async def select_local_subtitles(info, downloads):
+    index = 0
     bindings = KeyBindings()
     language_bindings(bindings)
 
+    @bindings.add("up")
+    def up(event):
+        nonlocal index
+        index = max(0, index - 1)
+
+    @bindings.add("down")
+    def down(event):
+        nonlocal index
+        index = min(1, index + 1)
+
     @bindings.add("enter")
     def submit(event):
-        event.app.exit(result=True)
+        event.app.exit(result=index == 0)
 
     @bindings.add("escape")
     def back(event):
@@ -269,6 +299,20 @@ async def select_local_subtitles(info, downloads):
             directory=downloads,
         )
 
+    def rows():
+        result = []
+        for i, key in enumerate(("local_subtitles.continue", "local_subtitles.cancel")):
+            if i == index:
+                result.append(("[SetCursorPosition]", ""))
+            result.append(
+                (
+                    "class:selected" if i == index else "",
+                    ("❯ " if i == index else "  ") + t(key) + ("\n" if i == 0 else ""),
+                )
+            )
+        return result
+
+    control = FormattedTextControl(rows, focusable=True, show_cursor=False)
     app = Application(
         layout=Layout(
             HSplit(
@@ -280,12 +324,19 @@ async def select_local_subtitles(info, downloads):
                     ),
                     Label(details),
                     ConditionalContainer(
-                        Label(lambda: t("local_subtitles.adjusted")),
+                        Label(
+                            lambda: t(
+                                "local_subtitles.adjusted",
+                                milliseconds=info["captions"].get("shortened_ms", 0),
+                            )
+                        ),
                         filter=Condition(lambda: bool(info["captions"]["adjusted"])),
                     ),
+                    Frame(choice_window(control), title=lambda: t("local_subtitles.choose_action")),
                     shortcuts(lambda: t("local_subtitles.confirm_hint")),
                 ]
-            )
+            ),
+            focused_element=control,
         ),
         key_bindings=bindings,
         style=STYLE,
@@ -305,10 +356,6 @@ async def read_input(mode="download", text="") -> tuple[str, str]:
         (app.exit(result=("submit", buffer.text.strip())) if buffer.text.strip() else None) or True
     )
     exit_bindings(bindings, lambda event: event.app.exit(exception=KeyboardInterrupt()))
-
-    @bindings.add("tab")
-    def switch(event):
-        event.app.exit(result=("switch", field.text))
 
     if mode == "compress":
 
@@ -437,8 +484,7 @@ async def select_compression(info, downloads):
                             audio=audio_label(),
                         )
                     ),
-                    Label(lambda: t("compression.choose_mode")),
-                    choice_window(control),
+                    Frame(choice_window(control), title=lambda: t("compression.choose_mode")),
                     Label(
                         lambda: t(
                             "keep_source_resolution_aspect_ratio_and_frame_rate_output_mp4",
@@ -466,23 +512,43 @@ async def select(info: dict, downloads, settings=None) -> Choice | None:
         index = next((i for i, c in enumerate(options) if c.key == settings["resolution"]), index)
     if not info.get("caption") or info.get("subtitle_error"):
         settings["subtitles"] = False
+
+    def active():
+        current = get_app().layout.current_control
+        return next((name for name, control in controls.items() if control is current), None)
+
+    message = ""
     bindings = KeyBindings()
     language_bindings(bindings)
 
     @bindings.add("up")
     def up(event):
         nonlocal index
-        index = max(0, index - 1)
+        nonlocal message
+        if active() == "resolution":
+            index = max(0, index - 1)
+        elif active() == "subtitles":
+            settings["subtitles"] = False
+            message = ""
 
     @bindings.add("down")
     def down(event):
         nonlocal index
-        index = min(len(options) - 1, index + 1)
+        nonlocal message
+        if active() == "resolution":
+            index = min(len(options) - 1, index + 1)
+        elif active() == "subtitles":
+            if info.get("subtitle_error"):
+                message = t("subtitle.not_ready", reason=info["subtitle_error"])
+            else:
+                settings["subtitles"] = True
+                message = ""
 
     @bindings.add("enter")
     def enter(event):
-        settings["resolution"] = options[index].key
-        event.app.exit(result=options[index])
+        if active() == "confirm":
+            settings["resolution"] = options[index].key
+            event.app.exit(result=options[index])
 
     @bindings.add("escape")
     def back(event):
@@ -508,81 +574,24 @@ async def select(info: dict, downloads, settings=None) -> Choice | None:
         result[-1] = (result[-1][0], result[-1][1].rstrip("\n"))
         return result
 
-    if info.get("caption"):
+    def frame_title(key, group):
+        return t(key)
 
-        @bindings.add("s")
-        @bindings.add("S")
-        def subtitle_settings(event):
-            from .screen import current_screen
+    def panel(body, *, title, style):
+        return HSplit([BaseFrame(body, title=title)], style=style)
 
-            screen = current_screen()
-            app = event.app
-            previous_layout, previous_bindings = app.layout, app.key_bindings
-            selected = int(settings.get("subtitles", False))
-            message = ""
-            keys = KeyBindings()
-            language_bindings(keys)
+    def frame_style(group):
+        return "class:resolution" if active() == group else "class:subtitle"
 
-            def restore():
-                if screen:
-                    screen.close_modal()
-                else:
-                    app.layout, app.key_bindings = previous_layout, previous_bindings
-                    app.invalidate()
-
-            @keys.add("up")
-            @keys.add("down")
-            def move(event):
-                nonlocal selected
-                selected = 0 if event.key_sequence[0].key == "up" else 1
-
-            @keys.add("enter")
-            def apply(event):
-                nonlocal message
-                if selected and info.get("subtitle_error"):
-                    message = t("subtitle.not_ready", reason=info["subtitle_error"])
-                    return
-                settings["subtitles"] = bool(selected)
-                restore()
-
-            @keys.add("escape")
-            def cancel(event):
-                restore()
-
-            exit_bindings(keys, lambda event: event.app.exit(exception=KeyboardInterrupt()))
-
-            def subtitle_rows():
-                result = []
-                for i, key in enumerate(("subtitle.off", "subtitle.on")):
-                    if i == selected:
-                        result.append(("[SetCursorPosition]", ""))
-                    result.append(
-                        (
-                            "class:selected" if i == selected else "",
-                            ("❯ " if i == selected else "  ") + t(key) + ("\n" if i == 0 else ""),
-                        )
-                    )
-                return result
-
-            control = FormattedTextControl(subtitle_rows, focusable=True, show_cursor=False)
-            modal_layout = Layout(
-                HSplit(
-                    [
-                        Label(lambda: t("subtitle.title"), style="class:title"),
-                        choice_window(control),
-                        ConditionalContainer(
-                            Label(lambda: message), filter=Condition(lambda: bool(message))
-                        ),
-                        shortcuts(lambda: t("subtitle.settings_hint")),
-                    ]
-                ),
-                focused_element=control,
+    def subtitle_rows():
+        selected = int(settings.get("subtitles", False))
+        return [
+            (
+                "class:selected" if i == selected else "",
+                ("❯ " if i == selected else "  ") + t(key) + ("\n" if i == 0 else ""),
             )
-            if screen:
-                screen.open_modal(modal_layout, keys)
-            else:
-                app.layout, app.key_bindings = modal_layout, keys
-                app.invalidate()
+            for i, key in enumerate(("subtitle.off", "subtitle.on"))
+        ]
 
     def subtitle_description():
         track = info.get("caption")
@@ -595,13 +604,23 @@ async def select(info: dict, downloads, settings=None) -> Choice | None:
         )
 
     control = FormattedTextControl(rows, focusable=True, show_cursor=False)
+    subtitle_control = FormattedTextControl(
+        subtitle_rows,
+        focusable=True,
+        show_cursor=False,
+        get_cursor_position=lambda: Point(0, int(settings.get("subtitles", False))),
+    )
+    confirm_control = FormattedTextControl(
+        lambda: t("download.confirm"), focusable=True, show_cursor=False
+    )
+    controls = {"resolution": control, "subtitles": subtitle_control, "confirm": confirm_control}
     app = Application(
         layout=Layout(
             HSplit(
                 [
                     navigation_label("download"),
                     Label(f"{info['title']} · {clock(info['duration'])}", style="class:title"),
-                    Frame(
+                    panel(
                         HSplit(
                             [
                                 choice_window(control),
@@ -611,28 +630,56 @@ async def select(info: dict, downloads, settings=None) -> Choice | None:
                                 ),
                             ]
                         ),
-                        title=lambda: t("download.resolution_frame"),
-                        style="class:resolution",
+                        title=lambda: frame_title("download.resolution_frame", "resolution"),
+                        style=lambda: frame_style("resolution"),
                     ),
                     ConditionalContainer(
-                        Frame(
-                            Label(subtitle_description),
-                            title=lambda: t("subtitle.frame"),
-                            style="class:subtitle",
+                        panel(
+                            HSplit(
+                                [
+                                    choice_window(subtitle_control),
+                                    Label(subtitle_description),
+                                    ConditionalContainer(
+                                        Label(lambda: message),
+                                        filter=Condition(lambda: bool(message)),
+                                    ),
+                                ]
+                            ),
+                            title=lambda: frame_title("subtitle.frame", "subtitles"),
+                            style=lambda: frame_style("subtitles"),
                         ),
                         filter=Condition(lambda: bool(info.get("caption"))),
                     ),
-                    Label(
-                        lambda: t(
-                            "output_format_mp4_h_264_aac_no_audio_added_to",
-                            directory=downloads,
-                        )
+                    HSplit(
+                        [
+                            Label(
+                                lambda: t(
+                                    "output_format_mp4_h_264_aac_no_audio_added_to",
+                                    directory=downloads,
+                                ).split("\n", 1)[0]
+                            ),
+                            Label(
+                                lambda: t(
+                                    "output_format_mp4_h_264_aac_no_audio_added_to",
+                                    directory=downloads,
+                                ).split("\n", 1)[1]
+                            ),
+                        ]
                     ),
                     ConditionalContainer(
                         Label(lambda: t("audio.original_label", language=info["audio_language"])),
                         filter=Condition(lambda: bool(info.get("audio_language"))),
                     ),
-                    shortcuts(lambda: t("download.actions")),
+                    panel(
+                        choice_window(confirm_control),
+                        title=lambda: frame_title("download.confirm", "confirm"),
+                        style=lambda: frame_style("confirm"),
+                    ),
+                    shortcuts(
+                        lambda: t(
+                            "focus.confirm_hint" if active() == "confirm" else "focus.options_hint"
+                        )
+                    ),
                 ]
             ),
             focused_element=control,

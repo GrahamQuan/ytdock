@@ -135,3 +135,28 @@ def test_failure_details_and_timeout(tmp_path, environment, monkeypatch):
 
 def test_parser_does_not_accept_codec_name_in_description():
     assert "libx264" not in ffmpeg.codec_names(" V..... libx264rgb Similar to libx264")
+
+
+def test_progress_only_confirms_selected_pair_after_fallback(tmp_path, environment, monkeypatch):
+    bad, good = tools(tmp_path / "bad"), tools(tmp_path / "good")
+    monkeypatch.setattr(ffmpeg, "search_directories", lambda: iter([bad, good]))
+
+    def output(path, *args):
+        result = environment(path, *args)
+        return result.replace(" libx264 ", " missing ") if path.parent == bad else result
+
+    monkeypatch.setattr(ffmpeg, "output", output)
+    events = []
+    selected = ffmpeg.find_media_tools(progress=lambda *event: events.append(event))
+    assert selected["ffmpeg"] == str(good / "ffmpeg")
+    assert events[-2:] == [("ffmpeg", "ready"), ("ffprobe", "ready")]
+    assert all(state == "checking" for _, state in events[:-2])
+
+
+def test_failed_pair_reports_the_program_that_actually_failed(tmp_path, environment, monkeypatch):
+    directory = tools(tmp_path / "probe-only", ("ffprobe",))
+    monkeypatch.setattr(ffmpeg, "search_directories", lambda: iter([directory]))
+    events = []
+    with pytest.raises(UserError):
+        ffmpeg.find_media_tools(progress=lambda *event: events.append(event))
+    assert events[-2:] == [("ffprobe", "ready"), ("ffmpeg", "failed")]

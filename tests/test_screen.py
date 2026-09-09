@@ -66,6 +66,18 @@ def outcome(update, status="succeeded", saved=None, cleanup=True):
     )
 
 
+async def navigate(screen, pipe, mode):
+    while screen.app.layout.current_control is not screen.nav_control:
+        pipe.send_text("\x1b[Z")
+        await asyncio.sleep(0.03)
+    while screen.active != mode:
+        pipe.send_text("\x1b[C")
+        await asyncio.sleep(0.03)
+    assert screen.app.layout.current_control is screen.nav_control
+    pipe.send_text("\t")
+    await until(lambda: screen.app.layout.current_control is not screen.nav_control)
+
+
 def test_one_application_four_tabs_cursor_and_language(tmp_path, monkeypatch):
     monkeypatch.setattr(
         ui, "ToolkitApplication", lambda **kwargs: pytest.fail("Nested Application")
@@ -73,40 +85,35 @@ def test_one_application_four_tabs_cursor_and_language(tmp_path, monkeypatch):
 
     async def scenario():
         async with running(tmp_path) as (screen, pipe):
-            pipe.send_text("draft\x1b[D\x1b[D\t")
-            await until(lambda: screen.active == "compress")
-            pipe.send_text("compress-path\t")
-            await until(lambda: screen.active == "subtitles")
-            pipe.send_text("video-path\x1b[Bcaption-path\t")
-            await until(lambda: screen.active == "tasks")
-            pipe.send_text("\t")
-            await until(lambda: screen.active == "download")
+            pipe.send_text("draftWS[]\x1b[D\x1b[D")
+            await asyncio.sleep(0.05)
             buffer = screen.app.layout.current_control.buffer
-            assert buffer.text == "draft" and buffer.cursor_position == 3
-            # Backward wrap and every reverse hop retain each original page.
-            for mode in ("tasks", "subtitles", "compress", "download"):
-                pipe.send_text("\x1b[Z")
-                await until(lambda: screen.active == mode)
-                if mode == "subtitles":
-                    assert screen.app.layout.current_control.buffer.text == "caption-path"
-                if mode == "compress":
-                    assert screen.app.layout.current_control.buffer.text == "compress-path"
-            assert screen.app.layout.current_control.buffer is buffer
-            assert buffer.cursor_position == 3
-            pipe.send_text("\x1b[C")
-            await until(lambda: buffer.cursor_position == 4)
-            assert screen.active == "download"
-            pipe.send_text("\x1b[D")
-            await until(lambda: buffer.cursor_position == 3)
-            pipe.send_text("\t\t")
-            await until(lambda: screen.active == "subtitles")
-            assert screen.app.layout.current_control.buffer.text == "caption-path"
+            assert buffer.text == "draftWS[]" and buffer.cursor_position == 7
+            await navigate(screen, pipe, "compress")
+            pipe.send_text("compress-path")
+            await navigate(screen, pipe, "subtitles")
+            pipe.send_text("video-path\tcaption-path")
+            await asyncio.sleep(0.05)
+            caption_control = screen.app.layout.current_control
+            assert caption_control.buffer.text == "caption-path"
             pipe.send_text("\x0f\x0f")
             await until(lambda: screen.modal is not None)
-            assert len(screen.modal_stack) == 1
-            pipe.send_text("\x1b[B\r")
+            pipe.send_text("\t\x1b[B\r")
             await until(lambda: screen.modal is None)
-            assert screen.app.layout.current_control.buffer.text == "caption-path"
+            assert screen.app.layout.current_control is caption_control
+            await navigate(screen, pipe, "tasks")
+            await navigate(screen, pipe, "download")
+            assert screen.app.layout.current_control.buffer is buffer
+            assert buffer.cursor_position == 7
+            pipe.send_text("\x1b[C")
+            await until(lambda: buffer.cursor_position == 8)
+            assert screen.active == "download"
+            pipe.send_text("\x1b[Z")
+            await until(lambda: screen.app.layout.current_control is screen.nav_control)
+            for mode in ("tasks", "subtitles", "compress", "download"):
+                pipe.send_text("\x1b[D")
+                await until(lambda: screen.active == mode)
+                assert screen.app.layout.current_control is screen.nav_control
             assert screen.app.full_screen
 
     asyncio.run(scenario())
@@ -142,7 +149,7 @@ def test_task_outcomes_records_and_sticky_input(tmp_path, monkeypatch, finish):
         async with running(tmp_path) as (screen, pipe):
             pipe.send_text(URL + "\r")
             await until(lambda: screen.records and screen.records[0].status == "choosing")
-            pipe.send_text("\r")
+            pipe.send_text("\t\t\r")
             await entered.wait()
             pipe.send_text("\t\x1b[Z\x0f")
             await asyncio.sleep(0.03)
@@ -168,15 +175,13 @@ def test_task_outcomes_records_and_sticky_input(tmp_path, monkeypatch, finish):
                 "" if finish == "success" else URL
             )
             assert screen.notices["download"] is record
-            pipe.send_text("\t\t\t")
-            await until(lambda: screen.active == "tasks")
+            await navigate(screen, pipe, "tasks")
             pipe.send_text("\r")
             await asyncio.sleep(0.1)
             assert "Elapsed" in screen.task_view[0].current_control.record.details()
             pipe.send_text("\x1b")
             await asyncio.sleep(0.6)
-            pipe.send_text("\t")
-            await until(lambda: screen.active == "download")
+            await navigate(screen, pipe, "download")
             assert screen.notices["download"] is record
 
     asyncio.run(scenario())
@@ -198,13 +203,9 @@ def test_reselection_and_back_share_record(tmp_path, monkeypatch):
         async with running(tmp_path) as (screen, pipe):
             pipe.send_text(URL + "\r")
             await until(lambda: screen.records and screen.records[0].status == "choosing")
-            pipe.send_text("s")
-            await until(lambda: screen.modal is not None)
             pipe.send_text("\x0f")
-            await until(lambda: len(screen.modal_stack) == 2)
+            await until(lambda: screen.modal is not None)
             pipe.send_text("\x1b")
-            await until(lambda: len(screen.modal_stack) == 1)
-            pipe.send_text("\x1b[B\r")
             await until(lambda: screen.modal is None)
             selected_control = screen.app.layout.current_control
             selected_text = selected_control.text()
@@ -213,12 +214,11 @@ def test_reselection_and_back_share_record(tmp_path, monkeypatch):
                 ("\x1b[Z", ("tasks", "subtitles", "compress", "download")),
             ):
                 for mode in modes:
-                    pipe.send_text(key)
-                    await until(lambda: screen.active == mode)
+                    await navigate(screen, pipe, mode)
                 assert screen.app.layout.current_control is selected_control
                 assert selected_control.text() == selected_text
             await until(lambda: screen.active == "download")
-            pipe.send_text("\r")
+            pipe.send_text("\t\t\r")
             await until(lambda: downloads == 1 and screen.records[0].status == "choosing")
             assert len(screen.records) == 1
             pipe.send_text("\x1b")
@@ -381,7 +381,7 @@ def test_feature_results_keep_or_clear_inputs(tmp_path, monkeypatch, mode, finis
             screen.activate(mode)
             pipe.send_text(str(video))
             if mode == "subtitles":
-                pipe.send_text("\x1b[B" + str(captions))
+                pipe.send_text("\t" + str(captions))
             pipe.send_text("\r")
             await until(lambda: screen.records and screen.records[0].status == "choosing")
             pipe.send_text("\x1b" if finish == "back" else "\r")
@@ -469,5 +469,71 @@ def test_centered_header_resize_languages_and_monochrome(tmp_path):
                     assert rendered[1].strip().startswith("█▄█")
                 assert "Ctrl+C" in "\n".join(rendered)
                 assert "Terminal too small" not in "\n".join(rendered)
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("captions", [False, True])
+@pytest.mark.parametrize("locale", ["en", "zh-CN"])
+def test_navigation_focus_cycle_download_render(tmp_path, monkeypatch, captions, locale):
+    class Output(DummyOutput):
+        def get_size(self):
+            return Size(rows=45, columns=110)
+
+    async def execute(request, *args):
+        info = metadata()
+        if not captions:
+            info["caption"] = None
+        return info
+
+    monkeypatch.setattr(ui, "execute", execute)
+
+    async def scenario():
+        async with running(tmp_path, Output()) as (screen, pipe):
+            set_language(locale)
+            pipe.send_text(URL + "\r")
+            await until(lambda: screen.records and screen.records[0].status == "choosing")
+            resolution = screen.app.layout.current_control
+            pipe.send_text("ws[]\r")
+            await asyncio.sleep(0.05)
+            assert screen.records[0].status == "choosing"
+            assert screen.app.layout.current_control is resolution
+            controls = [resolution]
+            for _ in range(2 if captions else 1):
+                pipe.send_text("\t")
+                await asyncio.sleep(0.05)
+                controls.append(screen.app.layout.current_control)
+            assert len(set(controls)) == len(controls)
+            await asyncio.sleep(0.1)
+            rendered = "\n".join(
+                "".join(c.char for _, c in sorted(row.items()))
+                for _, row in sorted(screen.app.renderer._last_screen.data_buffer.items())
+            )
+            label = "Enter to Confirm" if locale == "en" else "回车确认"
+            assert label in rendered and f"[{label}]" not in rendered
+            assert ("[Download]" if locale == "en" else "[下载]") in rendered
+            (tmp_path / f"focus-{locale}-{captions}.txt").write_text(rendered)
+            pipe.send_text("\t")
+            await until(lambda: screen.app.layout.current_control is screen.nav_control)
+            await asyncio.sleep(0.1)
+            nav_render = "\n".join(
+                "".join(c.char for _, c in sorted(row.items()))
+                for _, row in sorted(screen.app.renderer._last_screen.data_buffer.items())
+            )
+            assert "╭" in nav_render and "╰" in nav_render
+            assert "❯ [Download]" not in nav_render
+            (tmp_path / f"navigation-{locale}-{captions}.txt").write_text(nav_render)
+            pipe.send_text("\x0f\t\x1b")
+            await asyncio.sleep(0.6)
+            assert screen.app.layout.current_control is screen.nav_control
+            pipe.send_text("\x1b[Z")
+            await until(lambda: screen.app.layout.current_control is controls[-1])
+            for control in reversed(controls[:-1]):
+                pipe.send_text("\x1b[Z")
+                await until(lambda: screen.app.layout.current_control is control)
+            pipe.send_text("\x1b[Z")
+            await until(lambda: screen.app.layout.current_control is screen.nav_control)
+            pipe.send_text("\t")
+            await until(lambda: screen.app.layout.current_control is resolution)
 
     asyncio.run(scenario())

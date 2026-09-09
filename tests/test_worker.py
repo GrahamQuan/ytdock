@@ -91,7 +91,12 @@ def test_subtitles_use_verified_duration_instead_of_metadata(tmp_path, monkeypat
     monkeypatch.setattr(subtitles, "download_caption", lambda *args: raw)
     monkeypatch.setattr(worker, "download_stream", lambda *args: None)
     monkeypatch.setattr(worker, "process", lambda *args: {})
-    monkeypatch.setattr(worker, "verify", lambda *args: 10.25)
+
+    def verified_duration(*args, subtitle_duration=False):
+        assert subtitle_duration is True
+        return 10.25
+
+    monkeypatch.setattr(worker, "verify", verified_duration)
     events = []
     monkeypatch.setattr(worker, "emit", events.append)
     worker.work(

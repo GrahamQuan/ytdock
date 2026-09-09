@@ -329,7 +329,9 @@ def prepare(source, target, duration, emit=None):
     try:
         original = parse_subtitle_cues(source, normalize=False)
         duration_ms = duration_milliseconds(duration)
+        last_end = max((cue.end_ms for cue in original), default=0)
         adjusted = bound_timeline(original, duration_ms)
+        shortened_ms = max(0, last_end - duration_milliseconds(duration))
         original = normalize_subtitle_timeline(original)
         cues = resegment_subtitle_cues(original, 42)
         # Millisecond rounding must not silently discard subtitle words.
@@ -353,6 +355,7 @@ def prepare(source, target, duration, emit=None):
                     "notice": t(
                         "subtitle.tail_adjusted",
                         count=adjusted,
+                        milliseconds=shortened_ms,
                         duration=format_srt_timestamp(duration_ms),
                     )
                 }

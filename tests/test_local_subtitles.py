@@ -100,13 +100,13 @@ def test_dual_input_keeps_values_and_language_picker():
             ui.read_input("subtitles", {"video": "/tmp/a video.mp4", "captions": ""})
         )
         await asyncio.sleep(0.1)
-        pipe.send_text("\x1b[B/tmp/翻译.srt\x0f")
+        pipe.send_text("\t/tmp/翻译.srt\x0f")
         await asyncio.sleep(0.1)
         pipe.send_text("\x1b")
         await asyncio.sleep(0.6)
-        pipe.send_text("\t")
+        pipe.send_text("\r")
         action, values = await task
-        assert action == "switch" and values == {
+        assert action == "submit" and values == {
             "video": "/tmp/a video.mp4",
             "captions": "/tmp/翻译.srt",
         }
@@ -283,7 +283,12 @@ def test_local_confirmation_back_and_enter(tmp_path):
     )
 
     async def scenario(pipe):
-        for key, expected in (("\x1b", False), ("\r", True)):
+        for key, expected in (
+            ("\x1b", False),
+            ("\r", True),
+            ("\x1b[B\r", False),
+            ("\x1b[B\x1b[A\r", True),
+        ):
             task = asyncio.create_task(ui.select_local_subtitles(info, tmp_path))
             await asyncio.sleep(0.1)
             pipe.send_text(key)
@@ -291,3 +296,38 @@ def test_local_confirmation_back_and_enter(tmp_path):
 
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
         asyncio.run(scenario(pipe))
+
+
+def test_download_srt_reimport_uses_picture_duration(tmp_path):
+    from ytdock.media import video_duration
+    from ytdock.subtitles import prepare as prepare_download
+
+    data = {"format": {"duration": "129.195828"}}
+    video = {"duration": "129.133333"}
+    duration = video_duration(data, video)
+    assert duration == 129.133333
+    raw = tmp_path / "original.srt"
+    raw.write_text("1\n00:02:08,759 --> 00:02:09,196\nday.\n")
+    downloaded = tmp_path / "downloaded.srt"
+    events = []
+    assert prepare_download(raw, downloaded, duration, events.append) == 1
+    assert "00:02:09,133" in downloaded.read_text()
+    imported = tmp_path / "imported.srt"
+    notices = []
+    result = prepare(downloaded, imported, video_duration(data, video), notices.append)
+    assert result["adjusted"] == 0
+    assert notices == []
+    assert imported.read_bytes() == downloaded.read_bytes()
+    # Existing downloaded files remain accepted and report the precise correction.
+    result = prepare(raw, imported, duration, notices.append)
+    assert result["shortened_ms"] == 63
+    assert "63" in notices[-1]["notice"]
+    assert "00:02:09,196" in raw.read_text()
+
+
+def test_shared_video_duration_fallback_and_invalid():
+    from ytdock.media import video_duration
+
+    assert video_duration({"format": {"duration": "2"}}, {}) == 2
+    with pytest.raises(UserError):
+        video_duration({"format": {"duration": "2"}}, {"duration": "NaN"})

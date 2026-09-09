@@ -83,7 +83,7 @@ def test_subtitle_visibility_and_selection(tmp_path, available, locale):
     from ytdock.i18n import set_language
 
     set_language(locale)
-    subtitle_word = "S Settings" if locale == "en" else "S 设置"
+    subtitle_word = "No subtitles" if locale == "en" else "不带字幕"
     options = [
         Choice(str(i), None, w, h, 30, False, None, False, False).to_dict()
         for i, (w, h) in enumerate([(1920, 1080), (1280, 720)])
@@ -102,24 +102,27 @@ def test_subtitle_visibility_and_selection(tmp_path, available, locale):
         await asyncio.sleep(0.1)
         if not available:
             assert subtitle_word not in output.text
-            pipe.send_text("s\r")
+            pipe.send_text("\t\r")
         else:
             assert subtitle_word in output.text
-            pipe.send_text("\x1b[Bs")
+            pipe.send_text("\x1b[B\t")
             await asyncio.sleep(0.1)
             pipe.send_text("\x1b[B\r")
             await asyncio.sleep(0.1)
             assert not task.done()
             assert settings["subtitles"]
-            pipe.send_text("s\x1b")
-            await asyncio.sleep(0.6)
+            pipe.send_text("\x1b[A")
+            await asyncio.sleep(0.1)
+            assert not settings["subtitles"]
+            pipe.send_text("\x1b[B\t")
+            await asyncio.sleep(0.1)
             pipe.send_text("\r")
         choice = await task
         assert choice.height == (720 if available else 1080)
         if available:
             task = asyncio.create_task(ui.select(info, tmp_path, settings))
             await asyncio.sleep(0.1)
-            pipe.send_text("\r")
+            pipe.send_text("\t\t\r")
             assert (await task).height == 720 and settings["subtitles"]
 
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=output):
@@ -215,7 +218,7 @@ def test_missing_capability_keeps_no_subtitles(tmp_path, monkeypatch):
     async def scenario(pipe):
         task = asyncio.create_task(ui.select(info, tmp_path, settings))
         await asyncio.sleep(0.1)
-        pipe.send_text("s\x1b[B\r")
+        pipe.send_text("\t\x1b[B")
         await asyncio.sleep(0.1)
         assert not task.done() and not settings["subtitles"]
         screen = applications[-1].renderer._last_screen
@@ -225,7 +228,7 @@ def test_missing_capability_keeps_no_subtitles(tmp_path, monkeypatch):
             for _, char in sorted(row.items())
         )
         assert "missinglibx265" in "".join(rendered.split())
-        pipe.send_text("\x1b[A\r\r")
+        pipe.send_text("\t\r")
         assert await task
 
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=output):

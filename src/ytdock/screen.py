@@ -8,6 +8,7 @@ from prompt_toolkit.data_structures import Point
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import fragment_list_to_text
 from prompt_toolkit.key_binding import KeyBindings, merge_key_bindings
+from prompt_toolkit.key_binding.key_bindings import ConditionalKeyBindings
 from prompt_toolkit.layout import ConditionalContainer, HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.containers import WindowAlign
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
@@ -57,6 +58,7 @@ class Page:
             self.screen.processing = True
         try:
             if self.mode == self.screen.active:
+                self.screen.nav_focus = False
                 self.screen.show()
             if pre_run:
                 pre_run()
@@ -110,6 +112,17 @@ class DetailControl(FormattedTextControl):
         return super().create_content(width, height)
 
 
+def focus_controls(container):
+    if isinstance(container, ConditionalContainer):
+        child = container.content if container.filter() else container.alternative_content
+        return focus_controls(child) if child else []
+    if isinstance(container, Window):
+        return [container.content] if container.content.is_focusable() else []
+    return list(
+        dict.fromkeys(c for child in container.get_children() for c in focus_controls(child))
+    )
+
+
 def required_height(container, width, height):
     """Reserve text/footer height while allowing focused lists to scroll."""
     width = max(1, width)
@@ -143,25 +156,67 @@ class Screen:
         self.pages, self.records, self.current_records = {}, [], {}
         self.notices, self.input_snapshots = {}, {}
         self.modal_stack, self.modal = [], None
+        self.nav_focus = False
+        self.nav_control = FormattedTextControl(
+            "",
+            focusable=Condition(lambda: not self.processing and self.modal is None),
+            show_cursor=False,
+        )
         self.task_index = 0
         self.task_view = None
         self.tasks = []
         self.keys = KeyBindings()
 
-        can_switch = Condition(lambda: not self.processing and self.modal is None)
+        can_focus = Condition(lambda: not self.processing)
+        on_nav = Condition(
+            lambda: (
+                not self.processing
+                and self.modal is None
+                and self.app.layout.current_control is self.nav_control
+            )
+        )
+
+        def move_focus(event, direction):
+            if self.modal:
+                candidates = [c for c in self.modal[0].get_focusable_windows()]
+                if candidates:
+                    event.app.layout.focus(candidates[0])
+                return
+            candidates = list(
+                dict.fromkeys([self.nav_control] + focus_controls(self.content_layout.container))
+            )
+            current = event.app.layout.current_control
+            index = candidates.index(current) if current in candidates else 0
+            target = candidates[(index + direction) % len(candidates)]
+            event.app.layout.focus(target)
+            self.nav_focus = target is self.nav_control
+            self.capture_focus()
+
+        @self.keys.add("tab", eager=True, filter=can_focus)
+        def next_focus(event):
+            move_focus(event, 1)
+
+        @self.keys.add("s-tab", eager=True, filter=can_focus)
+        def previous_focus(event):
+            move_focus(event, -1)
 
         def switch(direction):
             from .ui import MODES
 
-            self.activate(MODES[(MODES.index(self.active) + direction) % len(MODES)])
+            self.activate(
+                MODES[(MODES.index(self.active) + direction) % len(MODES)], navigation=True
+            )
 
-        @self.keys.add("tab", eager=True, filter=can_switch)
-        def next_tab(event):
+        @self.keys.add("right", eager=True, filter=on_nav)
+        def next_page(event):
             switch(1)
 
-        @self.keys.add("s-tab", eager=True, filter=can_switch)
-        def previous_tab(event):
+        @self.keys.add("left", eager=True, filter=on_nav)
+        def previous_page(event):
             switch(-1)
+
+        for key in ("up", "down", "enter", "escape"):
+            self.keys.add(key, eager=True, filter=on_nav)(lambda event: None)
 
         @self.keys.add("c-o", eager=True, filter=Condition(lambda: not self.processing))
         def language(event):
@@ -225,11 +280,12 @@ class Screen:
             if focused.is_focusable() and focused in page.layout.find_all_controls():
                 page.layout.focus(focused)
 
-    def activate(self, mode):
+    def activate(self, mode, *, navigation=False):
         if self.processing:
             return
         self.capture_focus()
         self.active = mode
+        self.nav_focus = navigation
         self.modal, self.modal_stack = None, []
         self.show()
 
@@ -238,7 +294,7 @@ class Screen:
         return value.notification() if isinstance(value, Record) else value or ""
 
     def show(self):
-        from .ui import Label, navigation
+        from .ui import Label, navigation, shortcuts
 
         if self.modal:
             layout, keys = self.modal
@@ -250,6 +306,7 @@ class Screen:
             layout, keys = page.layout, page.key_bindings
         else:
             return
+        self.content_layout = layout
         children = (
             list(layout.container.children)
             if isinstance(layout.container, HSplit)
@@ -260,6 +317,13 @@ class Screen:
         notice = ConditionalContainer(
             Label(self.notification), filter=Condition(lambda: bool(self.notification()))
         )
+        footer = ConditionalContainer(
+            shortcuts(lambda: t("focus.navigation_hint")),
+            filter=Condition(
+                lambda: self.modal is None and self.app.layout.current_control is self.nav_control
+            ),
+            alternative_content=footer,
+        )
         content = HSplit([body, notice, footer])
 
         def header():
@@ -267,21 +331,30 @@ class Screen:
             roomy = (
                 size.columns >= 70
                 and size.rows >= 24
-                and required_height(content, size.columns, size.rows) + 8 <= size.rows
+                and required_height(content, size.columns, size.rows) + 10 <= size.rows
             )
             title = (
                 "\n█▄█ ▀█▀ █▀▄ █▀█ █▀▀ █▄▀\n █   █  █ █ █ █ █   █▀▄\n ▀   ▀  ▀▀  ▀▀▀ ▀▀▀ ▀ ▀\n\n"
                 if roomy
                 else "YTDock\n"
             )
-            return (
-                [("class:title", title)] + navigation(self.active) + ([("", "\n")] if roomy else [])
-            )
+            tabs = navigation(self.active)
+            focused = self.app.layout.current_control is self.nav_control and not self.modal
+            if focused:
+                width = get_cwidth(fragment_list_to_text(tabs)) + 2
+                border = "class:navigation.border"
+                tabs = (
+                    [(border, "╭" + "─" * width + "╮\n│ ")]
+                    + tabs
+                    + [(border, " │\n╰" + "─" * width + "╯")]
+                )
+            return [("class:title", title)] + tabs + ([("", "\n")] if roomy else [])
 
+        self.nav_control.text = header
         normal = HSplit(
             [
                 Window(
-                    FormattedTextControl(header),
+                    self.nav_control,
                     align=WindowAlign.CENTER,
                     height=lambda: Dimension.exact(fragment_list_to_text(header()).count("\n") + 1),
                     wrap_lines=False,
@@ -305,11 +378,25 @@ class Screen:
                 FormattedTextControl(lambda: t("screen.too_small")), wrap_lines=True
             ),
         )
-        focus = layout.current_control
+        focus = (
+            self.nav_control
+            if self.nav_focus and self.modal is None and not self.processing
+            else layout.current_control
+        )
         self.app.layout = Layout(root)
         if focus.is_focusable() and focus in self.app.layout.find_all_controls():
             self.app.layout.focus(focus)
-        self.app.key_bindings = merge_key_bindings([keys, self.keys])
+        page_keys = ConditionalKeyBindings(
+            keys,
+            Condition(
+                lambda: (
+                    self.processing
+                    or self.modal is not None
+                    or self.app.layout.current_control is not self.nav_control
+                )
+            ),
+        )
+        self.app.key_bindings = merge_key_bindings([page_keys, self.keys])
         self.app.invalidate()
 
     def open_modal(self, layout, keys):
@@ -380,7 +467,7 @@ class Screen:
 
     def task_list(self):
         from .core import safe_text
-        from .ui import Label, shortcuts
+        from .ui import Frame, Label, shortcuts
 
         keys = KeyBindings()
 
@@ -422,7 +509,7 @@ class Screen:
             HSplit(
                 [
                     Label(lambda: t("mode.tasks")),
-                    Window(control, wrap_lines=True),
+                    Frame(Window(control, wrap_lines=True), title=lambda: t("mode.tasks")),
                     shortcuts(lambda: t("task.list_hint")),
                 ]
             ),
@@ -430,7 +517,7 @@ class Screen:
         ), keys
 
     def task_detail(self, record):
-        from .ui import shortcuts
+        from .ui import Frame, shortcuts
 
         control, keys = DetailControl(record), KeyBindings()
 
@@ -458,13 +545,16 @@ class Screen:
             self.show()
 
         return Layout(
-            HSplit([Window(control, wrap_lines=True), shortcuts(lambda: t("task.detail_hint"))]),
+            HSplit(
+                [
+                    Frame(Window(control, wrap_lines=True), title=lambda: t("mode.tasks")),
+                    shortcuts(lambda: t("task.detail_hint")),
+                ]
+            ),
             focused_element=control,
         ), keys
 
-    async def run(self):
-        from .workflow import run_mode
-
+    async def run(self, startup=None):
         token = _CURRENT.set(self)
         loop = asyncio.get_running_loop()
         previous_handler = loop.get_exception_handler()
@@ -477,6 +567,8 @@ class Screen:
         loop.set_exception_handler(handle_exception)
 
         async def feature(mode):
+            from .workflow import run_mode
+
             _MODE.set(mode)
             try:
                 await run_mode(self, mode)
@@ -485,10 +577,32 @@ class Screen:
             except BaseException as exc:
                 self.app.terminate(exception=exc)
 
+        def start_features():
+            self.tasks.extend(
+                [
+                    asyncio.create_task(feature(mode))
+                    for mode in ("download", "compress", "subtitles")
+                ]
+            )
+
+        async def initialize():
+            from .check_process import CheckCancelled
+
+            try:
+                await startup.run(self)
+                start_features()
+            except CheckCancelled:
+                self.app.terminate(result=130)
+            except asyncio.CancelledError:
+                raise
+            except BaseException as exc:
+                self.app.terminate(exception=exc)
+
         def start():
-            self.tasks = [
-                asyncio.create_task(feature(mode)) for mode in ("download", "compress", "subtitles")
-            ]
+            if startup:
+                self.tasks.append(asyncio.create_task(initialize()))
+            else:
+                start_features()
 
         try:
             return await self.app.run_async(pre_run=start, set_exception_handler=False)
@@ -496,6 +610,8 @@ class Screen:
             for task in self.tasks:
                 task.cancel()
             await asyncio.gather(*self.tasks, return_exceptions=True)
+            if startup:
+                startup.close()
             loop.set_exception_handler(previous_handler)
             _CURRENT.reset(token)
 

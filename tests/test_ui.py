@@ -32,7 +32,7 @@ def test_resolution_keyboard_and_escape(tmp_path):
     async def scenario(pipe):
         task = asyncio.create_task(ui.select(metadata, tmp_path))
         await asyncio.sleep(0.05)
-        pipe.send_text("\x1b[B\r")
+        pipe.send_text("\x1b[B\t\r")
         assert (await task).height == 720
         task = asyncio.create_task(ui.select(metadata, tmp_path))
         await asyncio.sleep(0.05)
@@ -77,7 +77,10 @@ def test_input_switch_preserves_draft_and_escape():
         task = asyncio.create_task(ui.read_input("download", "https://youtu.be/"))
         await asyncio.sleep(0.05)
         pipe.send_text("\x05draft\t")
-        assert await task == ("switch", "https://youtu.be/draft")
+        await asyncio.sleep(0.05)
+        assert not task.done()
+        pipe.send_text("\r")
+        assert await task == ("submit", "https://youtu.be/draft")
         task = asyncio.create_task(ui.read_input("compress", "/tmp/a b.mp4"))
         await asyncio.sleep(0.05)
         pipe.send_text("\x1b")
@@ -187,9 +190,9 @@ def test_resolution_layout_resize_and_scroll(tmp_path, monkeypatch):
             text = screen_text(app)
             assert "49fps" in text
             assert "Ctrl+C Exit" in text
-            assert "Subtitles · S Settings" in text
+            assert "Subtitles" in text
             assert "Format: MP4" in text
-        pipe.send_text("\r")
+        pipe.send_text("\t\t\r")
         assert (await task).fps == 49
 
     language = get_language()
@@ -255,13 +258,15 @@ def test_download_frames_order_and_optional_subtitles(tmp_path, monkeypatch):
                 assert "1920×1080" in text
                 if caption:
                     assert text.index(t("download.resolution_frame")) < text.index(
-                        t("subtitle.frame")
+                        t("subtitle.frame"), text.index(t("download.resolution_frame"))
                     )
-                    assert text.index(t("subtitle.frame")) < text.index(str(tmp_path)[:25])
+                    assert text.index(
+                        t("subtitle.frame"), text.index(t("download.resolution_frame"))
+                    ) < text.index(str(tmp_path)[:25])
                     assert t("subtitle." + caption["kind"]) in text
                 else:
-                    assert t("subtitle.frame") not in text
-                pipe.send_text("\r")
+                    assert "No subtitles" not in text and "不带字幕" not in text
+                pipe.send_text(("\t\t" if caption else "\t") + "\r")
                 assert (await task).key == choice.key
 
     previous = get_language()
@@ -270,3 +275,48 @@ def test_download_frames_order_and_optional_subtitles(tmp_path, monkeypatch):
             asyncio.run(scenario(pipe))
     finally:
         set_language(previous)
+
+
+def test_download_panels_focus_and_confirmation(tmp_path, monkeypatch):
+    apps = []
+    original = ui.Application
+
+    def capture(**kwargs):
+        app = original(**kwargs)
+        apps.append(app)
+        return app
+
+    monkeypatch.setattr(ui, "Application", capture)
+    info = dict(
+        title="Video",
+        duration=10,
+        choices=[Choice("v", None, 1920, 1080, 30, False, None, False, False).to_dict()],
+        caption=dict(kind="manual", language="en"),
+    )
+    settings = {}
+
+    async def scenario(pipe):
+        task = asyncio.create_task(ui.select(info, tmp_path, settings))
+        await asyncio.sleep(0.1)
+        app = apps[-1]
+        resolution = app.layout.current_control
+        pipe.send_text("\r")
+        await asyncio.sleep(0.05)
+        assert not task.done()
+        pipe.send_text("\t\x1b[B\r")
+        await asyncio.sleep(0.1)
+        assert not task.done() and settings["subtitles"]
+        subtitle = app.layout.current_control
+        assert subtitle is not resolution
+        pipe.send_text("\x1b[Z")
+        await asyncio.sleep(0.05)
+        assert app.layout.current_control is resolution
+        pipe.send_text("\t\t")
+        await asyncio.sleep(0.05)
+        assert app.layout.current_control not in (resolution, subtitle)
+        pipe.send_text("\x1b[A\x1b[B\r")
+        assert (await task).height == 1080
+        assert settings["subtitles"]
+
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        asyncio.run(scenario(pipe))

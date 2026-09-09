@@ -51,7 +51,9 @@ def prepare(path, target, duration, emit):
             raise UserError(t("local_subtitles.overlap"))
         cues.append(SubtitleCue(start, end, text))
         previous = end
+    last_end = max((cue.end_ms for cue in cues), default=0)
     adjusted = bound_timeline(cues, duration_milliseconds(duration))
+    shortened_ms = max(0, last_end - duration_milliseconds(duration))
     target.write_text(
         "\n\n".join(
             f"{i}\n{format_srt_timestamp(c.start_ms)} --> "
@@ -69,11 +71,18 @@ def prepare(path, target, duration, emit):
                 "notice": t(
                     "subtitle.tail_adjusted",
                     count=adjusted,
+                    milliseconds=shortened_ms,
                     duration=format_srt_timestamp(duration_milliseconds(duration)),
                 )
             }
         )
-    return {"path": str(path), "identity": before, "count": len(cues), "adjusted": adjusted}
+    return {
+        "path": str(path),
+        "identity": before,
+        "count": len(cues),
+        "adjusted": adjusted,
+        "shortened_ms": shortened_ms,
+    }
 
 
 def preflight(directory, info, ffmpeg, ffprobe, pass_fds=()):

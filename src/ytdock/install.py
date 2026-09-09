@@ -134,7 +134,9 @@ def install_bundle(source: Path, prefix: Path, home=None, shell="") -> Path:
             shutil.copytree(source, new, symlinks=True)
             verify_bundle(new)
             (new / "installation.json").write_text(
-                json.dumps({"app": APP_ID, "prefix": str(prefix), "path_config": path_record})
+                json.dumps(
+                    previous | {"app": APP_ID, "prefix": str(prefix), "path_config": path_record}
+                )
             )
             if destination.exists():
                 destination.rename(backup)
@@ -149,7 +151,10 @@ def install_bundle(source: Path, prefix: Path, home=None, shell="") -> Path:
             if home:
                 path_record, added_path = shell_path.configure(prefix, home, shell, path_record)
                 (destination / "installation.json").write_text(
-                    json.dumps({"app": APP_ID, "prefix": str(prefix), "path_config": path_record})
+                    json.dumps(
+                        previous
+                        | {"app": APP_ID, "prefix": str(prefix), "path_config": path_record}
+                    )
                 )
         except BaseException:
             try:

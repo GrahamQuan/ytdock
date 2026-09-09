@@ -178,7 +178,9 @@ def notices(bundle):
 def package():
     if sys.platform != "darwin" or platform.machine() != "arm64":
         raise RuntimeError("Only verified macOS arm64 releases may be built.")
-    version = importlib.metadata.version("ytdock")
+    from ytdock.version import get_version
+
+    version = get_version()
     release_name = f"ytdock-v{version}-macos-{platform.machine()}"
     staging = BUILD / release_name
     if staging.exists():
@@ -208,7 +210,7 @@ def package():
         "--collect-all",
         "yt_dlp_ejs",
     ]
-    for name in ("yt-dlp", "yt-dlp-ejs", "prompt-toolkit", "pyobjc-framework-Cocoa"):
+    for name in ("ytdock", "yt-dlp", "yt-dlp-ejs", "prompt-toolkit", "pyobjc-framework-Cocoa"):
         command += ["--copy-metadata", name]
     command += [ROOT / "packaging/entry.py"]
     print("打包 Python、UI 和 yt-dlp…", flush=True)
