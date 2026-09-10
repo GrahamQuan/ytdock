@@ -353,7 +353,7 @@ async def read_input(mode="download", text="") -> tuple[str, str]:
     field = TextArea(text=text, height=1, multiline=False, prompt="❯ ", wrap_lines=False)
     field.buffer.cursor_position = len(text)
     field.buffer.accept_handler = lambda buffer: (
-        (app.exit(result=("submit", buffer.text.strip())) if buffer.text.strip() else None) or True
+        (app.exit(result=("submit", buffer.text)) if buffer.text.strip() else None) or True
     )
     exit_bindings(bindings, lambda event: event.app.exit(exception=KeyboardInterrupt()))
 

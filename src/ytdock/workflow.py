@@ -1,9 +1,9 @@
 """One suspended interaction flow per feature, with strictly serialized processing."""
 
-from .compression import local_path
 from .controller import Cancelled
 from .core import FormatExpired, UserError, youtube_url
 from .i18n import t
+from .path_utils import local_path
 
 
 async def run_mode(screen, mode):

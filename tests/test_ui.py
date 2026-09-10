@@ -320,3 +320,22 @@ def test_download_panels_focus_and_confirmation(tmp_path, monkeypatch):
 
     with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
         asyncio.run(scenario(pipe))
+
+
+def test_path_inputs_preserve_trailing_whitespace():
+    async def scenario(pipe):
+        video = "/tmp/video name.mp4 "
+        captions = "/tmp/subtitles name.srt "
+        task = asyncio.create_task(ui.read_input("compress", video))
+        await asyncio.sleep(0.05)
+        pipe.send_text("\r")
+        assert await task == ("submit", video)
+        task = asyncio.create_task(
+            ui.read_input("subtitles", {"video": video, "captions": captions})
+        )
+        await asyncio.sleep(0.05)
+        pipe.send_text("\r")
+        assert await task == ("submit", {"video": video, "captions": captions})
+
+    with create_pipe_input() as pipe, create_app_session(input=pipe, output=DummyOutput()):
+        asyncio.run(scenario(pipe))

@@ -1,7 +1,6 @@
 """Single local-file compression, with read-only source identity and explicit streams."""
 
 import json
-import shlex
 import stat
 import subprocess
 import time
@@ -11,6 +10,7 @@ from pathlib import Path
 from .core import UserError, filename, safe_text, size
 from .i18n import t
 from .media import probe, rate, run, verify, video_duration
+from .path_utils import local_path as local_path
 
 PROFILES = {
     "size": {
@@ -28,37 +28,6 @@ PROFILES = {
 }
 # Exclude playlists, manifests and multi-file demuxers from a single-file tool.
 FORMATS = "mov,matroska,webm,avi,flv,mpeg,mpegts,ogg,asf"
-
-
-def local_path(value: str) -> Path:
-    value = value.strip()
-    if not value or any(c in value for c in ("\x00", "\n", "\r")):
-        raise UserError(t("enter_the_absolute_path_of_one_local_video_file_multiple"))
-    # Literal existing paths may contain spaces, quotes and shell metacharacters.
-    # Otherwise parse Finder's escaped/quoted spelling, without evaluating anything.
-    try:
-        literal = Path(value).expanduser()
-    except RuntimeError:
-        raise UserError(t("unable_to_expand_the_home_directory_use_an_absolute_path")) from None
-    if literal.is_absolute() and literal.is_file():
-        return literal.resolve()
-    try:
-        parts = shlex.split(value)
-    except ValueError:
-        raise UserError(t("unmatched_quotes_in_the_path_paste_the_complete_path_again")) from None
-    if len(parts) != 1:
-        raise UserError(t("only_one_file_is_supported_quote_paths_containing_spaces_or"))
-    try:
-        path = Path(parts[0]).expanduser()
-    except RuntimeError:
-        raise UserError(t("unable_to_expand_the_home_directory_use_an_absolute_path")) from None
-    if not path.is_absolute():
-        raise UserError(t("use_an_absolute_local_file_path_is_supported_not_a"))
-    if not path.exists():
-        raise UserError(t("file_not_found_check_the_path"))
-    if not path.is_file():
-        raise UserError(t("use_a_single_regular_video_file_not_a_directory_or"))
-    return path.resolve()
 
 
 def identity(path: Path) -> list[int]:

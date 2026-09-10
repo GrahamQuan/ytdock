@@ -8,7 +8,7 @@
 - **压缩**：提供「体积优先」和「画质优先」，保留源尺寸、宽高比和实际帧率，包括 60fps。
 - **文件保护**：不覆盖已有文件，不修改压缩源文件；取消或失败时清理本次任务的半成品。
 
-当前版本 **0.8.0**，提供 **macOS 14+ / Apple Silicon（arm64）** 安装包。
+当前版本 **0.8.1**，提供 **macOS 14+ / Apple Silicon（arm64）** 安装包。
 
 ## 快速开始
 
@@ -24,7 +24,7 @@ curl -fsSL https://raw.githubusercontent.com/GrahamQuan/ytdock/main/install.sh |
 
 手动安装可从 [GitHub Releases](https://github.com/GrahamQuan/ytdock/releases) 获取 ZIP，或使用本地构建的安装包：
 
-完整解压 `ytdock-v0.8.0-macos-arm64.zip`，双击 `Install.command`。程序安装到当前用户目录，无需管理员权限。
+完整解压 `ytdock-v0.8.1-macos-arm64.zip`，双击 `Install.command`。程序安装到当前用户目录，无需管理员权限。
 
 | 依赖 | 是否需要自行安装 |
 |---|---|
@@ -268,10 +268,10 @@ uv run ytdock
 脚本同步锁定依赖，校验并构建 QuickJS，封装 Python 和项目依赖，执行隔离安装、启动、压缩、取消、升级和卸载自检，最后生成 ZIP、tar.gz 和各自的 SHA256：
 
 ```text
-dist/ytdock-v0.8.0-macos-arm64.zip
-dist/ytdock-v0.8.0-macos-arm64.zip.sha256
-dist/ytdock-v0.8.0-macos-arm64.tar.gz
-dist/ytdock-v0.8.0-macos-arm64.tar.gz.sha256
+dist/ytdock-v0.8.1-macos-arm64.zip
+dist/ytdock-v0.8.1-macos-arm64.zip.sha256
+dist/ytdock-v0.8.1-macos-arm64.tar.gz
+dist/ytdock-v0.8.1-macos-arm64.tar.gz.sha256
 ```
 
 QuickJS 版本及校验值见 [packaging/sources.json](packaging/sources.json)。许可证和相关源码随包放在 `ytdock/THIRD_PARTY`、`ytdock/SOURCES`。构建缓存位于 `build/` 和 `.runtime/`；不会下载、构建或内置 FFmpeg/ffprobe 及其专用编码库。
@@ -282,7 +282,7 @@ QuickJS 版本及校验值见 [packaging/sources.json](packaging/sources.json)�
 uv run pytest -q
 uv run ruff check src tests scripts packaging
 uv run ruff format --check src tests scripts packaging
-uv run python scripts/smoke_release.py build/release/ytdock-v0.8.0-macos-arm64/ytdock --online
+uv run python scripts/smoke_release.py build/release/ytdock-v0.8.1-macos-arm64/ytdock --online
 ```
 
 `--online` 额外使用公开短视频验证安装版下载、发布和取消。媒体与安装验收使用临时目录；启动器在 PTY 和精简 PATH 下验证。请串行运行安装包自检，避免触发单实例保护。

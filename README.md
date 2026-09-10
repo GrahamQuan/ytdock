@@ -8,7 +8,7 @@ Download YouTube videos, compress local videos, or burn local SRT subtitles in y
 - **Compress:** choose Smaller file or Higher quality while keeping the source dimensions, aspect ratio and actual frame rate, including 60fps.
 - **Protect your files:** existing files are never overwritten, compression leaves the source unchanged, and cancellation or failure cleans up the current task's temporary files.
 
-Current version: **0.8.0**. Release packages target **macOS 14+ / Apple Silicon (arm64)**.
+Current version: **0.8.1**. Release packages target **macOS 14+ / Apple Silicon (arm64)**.
 
 ## Quick start
 
@@ -24,7 +24,7 @@ The script downloads the latest stable Apple Silicon package over HTTPS, verifie
 
 For manual installation, obtain the ZIP from [GitHub Releases](https://github.com/GrahamQuan/ytdock/releases) or use a locally built package:
 
-Extract the complete `ytdock-v0.8.0-macos-arm64.zip` archive and double-click `Install.command`. Installation is per user and does not require administrator privileges.
+Extract the complete `ytdock-v0.8.1-macos-arm64.zip` archive and double-click `Install.command`. Installation is per user and does not require administrator privileges.
 
 | Dependency | Required separately? |
 |---|---|
@@ -276,10 +276,10 @@ Exit all `ytdock` instances, then run:
 The script synchronizes locked dependencies, verifies and builds QuickJS, bundles Python and project dependencies, and runs isolated installation, launch, compression, cancellation, upgrade and removal checks. It then creates:
 
 ```text
-dist/ytdock-v0.8.0-macos-arm64.zip
-dist/ytdock-v0.8.0-macos-arm64.zip.sha256
-dist/ytdock-v0.8.0-macos-arm64.tar.gz
-dist/ytdock-v0.8.0-macos-arm64.tar.gz.sha256
+dist/ytdock-v0.8.1-macos-arm64.zip
+dist/ytdock-v0.8.1-macos-arm64.zip.sha256
+dist/ytdock-v0.8.1-macos-arm64.tar.gz
+dist/ytdock-v0.8.1-macos-arm64.tar.gz.sha256
 ```
 
 QuickJS versions and checksums are in [packaging/sources.json](packaging/sources.json). Third-party licenses and related source code ship in `ytdock/THIRD_PARTY` and `ytdock/SOURCES`. Build caches live in `build/` and `.runtime/`. FFmpeg/ffprobe and their dedicated codec libraries are not downloaded, built or bundled. Both READMEs and the translation catalog are included in releases.
@@ -290,7 +290,7 @@ QuickJS versions and checksums are in [packaging/sources.json](packaging/sources
 uv run pytest -q
 uv run ruff check src tests scripts packaging
 uv run ruff format --check src tests scripts packaging
-uv run python scripts/smoke_release.py build/release/ytdock-v0.8.0-macos-arm64/ytdock --online
+uv run python scripts/smoke_release.py build/release/ytdock-v0.8.1-macos-arm64/ytdock --online
 ```
 
 `--online` adds a public-video check for installed downloads, publication and cancellation. Media and installation checks use temporary directories. Launcher checks use a PTY and minimal PATH. Run release checks serially to avoid the single-instance lock.
