@@ -55,10 +55,12 @@ jobs:
       - name: Check platform and install test dependency
         run: |
           test "$(uname -m)" = arm64
-          brew install ffmpeg
+          brew install ffmpeg-full
+          echo "$(brew --prefix ffmpeg-full)/bin" >> "$GITHUB_PATH"
       - name: Test
         run: |
           uv sync --locked --group dev --group package
+          uv run python scripts/package.py --runtime-only
           uv run pytest -q
           uv run ruff check src tests scripts packaging
           uv run ruff format --check src tests scripts packaging
