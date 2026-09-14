@@ -10,6 +10,8 @@ Download YouTube videos, compress local videos, and add subtitles from your Mac 
 
 Supports **macOS 14 or later on Apple Silicon (M-series chips)**.
 
+![YTDock terminal interface](docs/images/ytdock-grid.png)
+
 ## Install and launch
 
 ### 1. Install YTDock

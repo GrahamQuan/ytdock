@@ -10,6 +10,8 @@
 
 支持 **macOS 14 及以上、Apple Silicon（M 系列芯片）**。
 
+![YTDock 终端界面](docs/images/ytdock-grid.png)
+
 ## 安装与启动
 
 ### 1. 安装 YTDock
