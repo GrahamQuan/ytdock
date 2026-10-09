@@ -581,7 +581,7 @@ class Screen:
             self.tasks.extend(
                 [
                     asyncio.create_task(feature(mode))
-                    for mode in ("download", "compress", "subtitles")
+                    for mode in ("download", "compress", "aspect", "subtitles")
                 ]
             )
 

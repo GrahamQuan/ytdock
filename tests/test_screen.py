@@ -34,7 +34,7 @@ async def running(tmp_path, output=None):
         screen = Screen({}, tmp_path, 0)
         task = asyncio.create_task(screen.run())
         try:
-            await until(lambda: len(screen.pages) == 3 or task.done())
+            await until(lambda: len(screen.pages) == 4 or task.done())
             if task.done():
                 await task
             yield screen, pipe
@@ -78,7 +78,7 @@ async def navigate(screen, pipe, mode):
     await until(lambda: screen.app.layout.current_control is not screen.nav_control)
 
 
-def test_one_application_four_tabs_cursor_and_language(tmp_path, monkeypatch):
+def test_one_application_five_tabs_cursor_and_language(tmp_path, monkeypatch):
     monkeypatch.setattr(
         ui, "ToolkitApplication", lambda **kwargs: pytest.fail("Nested Application")
     )
@@ -110,7 +110,7 @@ def test_one_application_four_tabs_cursor_and_language(tmp_path, monkeypatch):
             assert screen.active == "download"
             pipe.send_text("\x1b[Z")
             await until(lambda: screen.app.layout.current_control is screen.nav_control)
-            for mode in ("tasks", "subtitles", "compress", "download"):
+            for mode in ("tasks", "subtitles", "aspect", "compress", "download"):
                 pipe.send_text("\x1b[D")
                 await until(lambda: screen.active == mode)
                 assert screen.app.layout.current_control is screen.nav_control
@@ -210,8 +210,8 @@ def test_reselection_and_back_share_record(tmp_path, monkeypatch):
             selected_control = screen.app.layout.current_control
             selected_text = selected_control.text()
             for key, modes in (
-                ("\t", ("compress", "subtitles", "tasks", "download")),
-                ("\x1b[Z", ("tasks", "subtitles", "compress", "download")),
+                ("\t", ("compress", "aspect", "subtitles", "tasks", "download")),
+                ("\x1b[Z", ("tasks", "subtitles", "aspect", "compress", "download")),
             ):
                 for mode in modes:
                     await navigate(screen, pipe, mode)
@@ -535,5 +535,37 @@ def test_navigation_focus_cycle_download_render(tmp_path, monkeypatch, captions,
             await until(lambda: screen.app.layout.current_control is screen.nav_control)
             pipe.send_text("\t")
             await until(lambda: screen.app.layout.current_control is resolution)
+
+    asyncio.run(scenario())
+
+
+def test_aspect_custom_input_in_main_screen(tmp_path, monkeypatch):
+    video = tmp_path / "source.mp4"
+    video.touch()
+    submitted = []
+
+    async def execute(request, downloads, lock, cancel, update):
+        outcome(update)
+        if request["operation"] == "inspect_local":
+            return {"title": video.name, "video": {"width": 1920, "height": 1080}}
+        submitted.append(request["ratio"])
+        return {"path": "/tmp/ratio-fixed.mp4"}
+
+    monkeypatch.setattr(ui, "execute", execute)
+
+    async def scenario():
+        async with running(tmp_path) as (screen, pipe):
+            await navigate(screen, pipe, "aspect")
+            pipe.send_text(str(video) + "\r")
+            await until(lambda: screen.records and screen.records[0].status == "choosing")
+            pipe.send_text("\x1b[B" * 4)
+            await until(lambda: hasattr(screen.app.layout.current_control, "buffer"))
+            pipe.send_text("\x01\x0b7:5")
+            await until(lambda: screen.app.layout.current_control.buffer.text == "7:5")
+            screen.activate("download")
+            screen.activate("aspect")
+            assert screen.app.layout.current_control.buffer.text == "7:5"
+            pipe.send_text("\r")
+            await until(lambda: submitted == ["7:5"])
 
     asyncio.run(scenario())

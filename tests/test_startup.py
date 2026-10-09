@@ -138,7 +138,7 @@ def test_slow_startup_animates_then_enters_same_app(
             assert "FFmpeg" in rendered(screen) and "Ctrl+C" in rendered(screen)
             (tmp_path / f"startup-{language}.txt").write_text(rendered(screen))
             release.set()
-            await until(lambda: len(screen.pages) == 3)
+            await until(lambda: len(screen.pages) == 4)
             assert all(value == "ready" for value in startup.states.values())
             assert screen.app.full_screen
             pipe.send_text("\x03")

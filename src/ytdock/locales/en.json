@@ -328,5 +328,14 @@
   "focus.navigation_hint": "←→ Switch page · Tab Enter content\nCtrl+O Language · Ctrl+C Exit",
   "focus.options_hint": "Tab / Shift+Tab Focus · ↑↓ Select\nEsc Back · Ctrl+O Language · Ctrl+C Exit",
   "focus.confirm_hint": "Enter Confirm download · Tab / Shift+Tab Focus\nEsc Back · Ctrl+O Language · Ctrl+C Exit",
-  "focus.input_hint": "Enter Continue · Tab / Shift+Tab Focus"
+  "focus.input_hint": "Enter Continue · Tab / Shift+Tab Focus",
+  "mode.aspect": "Ratio repair",
+  "aspect.choose": "Correct aspect ratio",
+  "aspect.custom": "Custom",
+  "aspect.hint": "Restore the full frame without cropping or padding. Export a new MP4 to {directory}.",
+  "aspect.help": "↑/↓ Choose · Enter Export · Esc Back · Custom: enter width:height",
+  "aspect.invalid": "Enter positive integer width:height (1:10–10:1), with output dimensions up to 8192.",
+  "aspect.output": "Output: {width}×{height} · square pixels",
+  "stage.repairing_aspect": "Repairing aspect ratio",
+  "aspect.complete": "Processing complete\nInput: {p0} · Output: {p1} · {p2} {p3:.1f}%\nSaved to: {p4}"
 }

@@ -166,12 +166,14 @@ async def execute(request: dict, downloads: Path, lock: int, cancel: asyncio.Eve
             unchanged(request["source"]["captions"])
             target = save("subtitled", "subtitled.mp4", result["stem"])
             result["path"] = str(target)
-        if request["operation"] in ("download", "compress"):
-            if request["operation"] == "compress":
+        if request["operation"] in ("download", "compress", "repair_aspect"):
+            if request["operation"] in ("compress", "repair_aspect"):
                 from .compression import output_name, unchanged
 
                 unchanged(request["source"])
-                stem = output_name(request["source"], request["profile"])
+                stem = output_name(request["source"], request.get("profile", "quality"))
+                if request["operation"] == "repair_aspect":
+                    stem = stem.removesuffix("_compressed") + "_ratio-fixed"
             else:
                 stem = filename(result["title"], result["id"])
             target = save("source", "verified.mp4", stem)

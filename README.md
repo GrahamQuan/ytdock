@@ -109,6 +109,15 @@ Example output: `movie_compressed.mp4`. The source stays unchanged. Resolution, 
 
 Process one file at a time. Common formats such as MP4, MOV, MKV, and WebM are accepted. For videos with multiple audio tracks, only the track shown on the selection page is retained. Separate subtitle streams and cover art are not retained. Unsupported files, including HDR and rotated videos, are identified during checks.
 
+## Repair a stretched video's aspect ratio
+
+Open **Ratio repair**, enter a local video path, and select the correct ratio.
+Choose **16:9, 9:16, 1:1, 4:3, 3:4**, or **Custom** (`width:height`, for example `7:5`).
+The default is 9:16. The screen shows the output dimensions before you press Enter.
+The full frame is resized without cropping or padding and exported as a square-pixel MP4
+in Downloads with a `_ratio-fixed` suffix. The source file is preserved.
+The same source restrictions and audio selection rules as local compression apply.
+
 ## Add SRT subtitles to a local video
 
 Use this when you already have subtitles or have translated them with another tool. Burned-in subtitles appear directly in the picture; they need no separate file during playback and cannot be switched off.

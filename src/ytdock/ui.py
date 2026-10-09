@@ -196,7 +196,7 @@ def language_bindings(bindings):
         app.invalidate()
 
 
-MODES = ("download", "compress", "subtitles", "tasks")
+MODES = ("download", "compress", "aspect", "subtitles", "tasks")
 
 
 def navigation(mode):
@@ -716,7 +716,7 @@ async def busy(request, downloads, lock):
     state = {
         "stage": "stage.reading_information"
         if request.get("operation")
-        in ("inspect_local", "compress", "inspect_subtitles", "local_subtitles")
+        in ("inspect_local", "compress", "repair_aspect", "inspect_subtitles", "local_subtitles")
         else "stage.fetching_information"
     }
     bindings = KeyBindings()
@@ -755,7 +755,10 @@ async def busy(request, downloads, lock):
             HSplit(
                 [
                     navigation_label(
-                        "subtitles"
+                        "aspect"
+                        if request.get("mode") == "aspect"
+                        or request.get("operation") == "repair_aspect"
+                        else "subtitles"
                         if request.get("operation") in ("inspect_subtitles", "local_subtitles")
                         else "compress"
                         if request.get("operation") in ("inspect_local", "compress")
@@ -808,3 +811,86 @@ async def busy(request, downloads, lock):
     if isinstance(result, Exception):
         raise result
     return result
+
+
+async def select_aspect(info, downloads):
+    from .aspect import PRESETS, dimensions
+    from .core import UserError
+
+    index = 1
+    error = ""
+    bindings = KeyBindings()
+    language_bindings(bindings)
+    custom = TextArea(text="9:16", height=1, multiline=False)
+
+    def selected():
+        return PRESETS[index] if index < len(PRESETS) else custom.text
+
+    def move(event, delta):
+        nonlocal index, error
+        index = (index + delta) % (len(PRESETS) + 1)
+        error = ""
+        target = custom if index == len(PRESETS) else control
+        app.layout.focus(target)
+        # Embedded pages retain their own layout; input goes to the outer Application.
+        event.app.layout.focus(target)
+
+    @bindings.add("up")
+    def up(event):
+        move(event, -1)
+
+    @bindings.add("down")
+    def down(event):
+        move(event, 1)
+
+    @bindings.add("enter")
+    def enter(event):
+        nonlocal error
+        try:
+            dimensions(info["video"], selected())
+        except UserError as exc:
+            error = str(exc)
+        else:
+            event.app.exit(result=selected())
+
+    @bindings.add("escape")
+    def back(event):
+        event.app.exit(result=None)
+
+    exit_bindings(bindings, lambda event: event.app.exit(exception=KeyboardInterrupt()))
+
+    def rows():
+        return [
+            ("class:selected" if i == index else "", ("❯ " if i == index else "  ") + label + "\n")
+            for i, label in enumerate((*PRESETS, t("aspect.custom")))
+        ]
+
+    def output():
+        try:
+            width, height = dimensions(info["video"], selected())
+            return t("aspect.output", width=width, height=height)
+        except UserError as exc:
+            return str(exc)
+
+    control = FormattedTextControl(rows, focusable=True, show_cursor=False)
+    app = Application(
+        layout=Layout(
+            HSplit(
+                [
+                    navigation_label("aspect"),
+                    Label(info["title"], style="class:title"),
+                    Frame(choice_window(control), title=lambda: t("aspect.choose")),
+                    ConditionalContainer(custom, filter=Condition(lambda: index == len(PRESETS))),
+                    Label(output),
+                    Label(lambda: t("aspect.hint", directory=downloads)),
+                    Label(lambda: error, style="class:error"),
+                    shortcuts(lambda: t("aspect.help")),
+                ]
+            ),
+            focused_element=control,
+        ),
+        key_bindings=bindings,
+        style=STYLE,
+        full_screen=False,
+    )
+    return await app.run_async()

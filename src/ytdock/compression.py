@@ -191,7 +191,7 @@ def output_name(info, profile):
     return f"{base}_compressed"
 
 
-def command(info, profile, output, ffmpeg):
+def command(info, profile, output, ffmpeg, ratio=None):
     if profile not in PROFILES:
         raise UserError(t("unknown_compression_mode_select_again"))
     setting = PROFILES[profile]
@@ -234,8 +234,18 @@ def command(info, profile, output, ffmpeg):
         "-tag:v",
         "avc1",
     ]
+    filters = []
+    if ratio is not None:
+        from .aspect import dimensions
+
+        width, height = dimensions(video, ratio)
+        filters.append(f"scale={width}:{height}")
     if video.get("color_range") == "pc":
-        args += ["-vf", "scale=in_range=pc:out_range=tv"]
+        filters.append("scale=in_range=pc:out_range=tv")
+    if ratio is not None:
+        filters.append("setsar=1")
+    if filters:
+        args += ["-vf", ",".join(filters)]
     # Keep the SDR transfer and matrix; explicitly convert full to limited range.
     for key, flag in (
         ("color_range", "-color_range"),
@@ -254,9 +264,17 @@ def command(info, profile, output, ffmpeg):
     return args
 
 
-def compress(info, profile, output, ffmpeg, ffprobe, emit, pass_fds=()):
+def compress(info, profile, output, ffmpeg, ffprobe, emit, pass_fds=(), ratio=None):
+    if ratio is not None:
+        original_emit = emit
+
+        def emit(event):
+            if event.get("stage") == "stage.compressing":
+                event = event | {"stage": "stage.repairing_aspect"}
+            original_emit(event)
+
     unchanged(info)
-    args = command(info, profile, output, ffmpeg)
+    args = command(info, profile, output, ffmpeg, ratio)
     emit({"stage": "stage.compressing", "done": 0, "total": info["duration"]})
     last = 0.0
     error_path = output.parent / "ffmpeg-error.log"
@@ -289,7 +307,14 @@ def compress(info, profile, output, ffmpeg, ffprobe, emit, pass_fds=()):
     emit({"stage": "stage.compressing", "finished": True})
     emit({"stage": "stage.verifying_file"})
     unchanged(info)
-    verify(output, info["choice"], info["duration"], info["video"], ffmpeg, ffprobe, pass_fds)
+    choice, expected_video = info["choice"], info["video"]
+    if ratio is not None:
+        from .aspect import dimensions
+
+        width, height = dimensions(expected_video, ratio)
+        choice = choice | {"width": width, "height": height}
+        expected_video = expected_video | {"sample_aspect_ratio": "1:1"}
+    verify(output, choice, info["duration"], expected_video, ffmpeg, ffprobe, pass_fds)
     result = probe(output, ffprobe, pass_fds)
     video = main_stream(result["streams"], "video")
     if video.get("codec_tag_string") != "avc1" or len(result["streams"]) != 1 + int(
@@ -306,6 +331,7 @@ def compress(info, profile, output, ffmpeg, ffprobe, emit, pass_fds=()):
             raise UserError(t("output_color_information_differs_from_the_source_no_output_was"))
     unchanged(info)
     return {
+        "aspect_ratio": ratio,
         "stem": output_name(info, profile),
         "input_bytes": info["input_bytes"],
         "output_bytes": output.stat().st_size,
@@ -323,7 +349,7 @@ def summary(result):
         else t("size_unchanged")
     )
     return t(
-        "compression.complete",
+        "aspect.complete" if result.get("aspect_ratio") else "compression.complete",
         p0=size(before),
         p1=size(after),
         p2=label,

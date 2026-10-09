@@ -71,6 +71,17 @@ async def run_mode(screen, mode):
                         record.notices.append(str(exc))
                         screen.notices[mode] = str(exc)
                         screen.app.invalidate()
+            elif mode == "aspect":
+                info = await busy(
+                    {"operation": "inspect_local", "path": str(local_path(text)), "mode": mode}
+                )
+                record.title, record.status = info["title"], "choosing"
+                ratio = await ui.select_aspect(info, screen.downloads)
+                result = (
+                    await busy({"operation": "repair_aspect", "source": info, "ratio": ratio})
+                    if ratio
+                    else None
+                )
             elif mode == "compress":
                 info = await busy({"operation": "inspect_local", "path": str(local_path(text))})
                 record.title, record.status = info["title"], "choosing"

@@ -149,7 +149,7 @@ def work(request: dict):
         )
         emit({"result": result})
         return
-    if request["operation"] in ("inspect_local", "compress"):
+    if request["operation"] in ("inspect_local", "compress", "repair_aspect"):
         from .compression import compress, inspect, unchanged
 
         emit({"stage": "stage.reading_information"})
@@ -164,12 +164,13 @@ def work(request: dict):
                 raise UserError(t("source_information_has_changed_enter_the_path_again"))
             result = compress(
                 source,
-                request["profile"],
+                request.get("profile", "quality"),
                 Path(request["directory"]) / "verified.mp4",
                 request["ffmpeg"],
                 request["ffprobe"],
                 emit,
                 fds,
+                ratio=request.get("ratio") if request["operation"] == "repair_aspect" else None,
             )
             emit({"result": result})
         return
@@ -308,7 +309,8 @@ def main():
                     if isinstance(exc, OSError) and exc.errno == 28
                     else t("local_video_processing_failed_check_the_file_disk_space_and")
                 )
-                if request.get("operation") in ("inspect_local", "compress", "burn_subtitles")
+                if request.get("operation")
+                in ("inspect_local", "compress", "repair_aspect", "burn_subtitles")
                 else provider_error(exc)
             )
         )

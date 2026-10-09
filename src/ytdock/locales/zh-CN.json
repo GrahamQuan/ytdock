@@ -328,5 +328,14 @@
   "focus.navigation_hint": "←→ 切换页面 · Tab 进入内容\nCtrl+O 语言 · Ctrl+C 退出",
   "focus.options_hint": "Tab / Shift+Tab 切换区域 · ↑↓ 选择\nEsc 返回 · Ctrl+O 语言 · Ctrl+C 退出",
   "focus.confirm_hint": "Enter 确认下载 · Tab / Shift+Tab 切换区域\nEsc 返回 · Ctrl+O 语言 · Ctrl+C 退出",
-  "focus.input_hint": "Enter 继续 · Tab / Shift+Tab 切换区域"
+  "focus.input_hint": "Enter 继续 · Tab / Shift+Tab 切换区域",
+  "mode.aspect": "比例修复",
+  "aspect.choose": "正确的画面比例",
+  "aspect.custom": "自定义",
+  "aspect.hint": "完整画面纠正拉伸，不裁剪、不加黑边。导出新 MP4 至 {directory}。",
+  "aspect.help": "↑/↓ 选择 · Enter 导出 · Esc 返回 · 自定义：输入 宽:高",
+  "aspect.invalid": "请输入正整数 宽:高（1:10 至 10:1），输出尺寸不得超过 8192。",
+  "aspect.output": "输出：{width}×{height} · 方形像素",
+  "stage.repairing_aspect": "正在修复画面比例",
+  "aspect.complete": "处理完成\n输入：{p0} · 输出：{p1} · {p2} {p3:.1f}%\n已保存：{p4}"
 }
