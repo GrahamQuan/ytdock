@@ -97,7 +97,8 @@ async def execute(request: dict, downloads: Path, lock: int, cancel: asyncio.Eve
         )
         process.stdin.write((json.dumps(payload) + "\n").encode())
         await process.stdin.drain()
-        process.stdin.close()
+        if operation["operation"] != "mac_preview":
+            process.stdin.close()
         result = None
         failure = None
         pending = asyncio.create_task(process.stdout.readline())
@@ -116,7 +117,13 @@ async def execute(request: dict, downloads: Path, lock: int, cancel: asyncio.Eve
                     event = json.loads(line)
                 except (ValueError, UnicodeError):
                     raise UserError(t("worker_communication_failed")) from None
-                if "result" in event:
+                if "preview_confirmation" in event and operation["operation"] == "mac_preview":
+                    decision = update(event)
+                    if decision is None or not await decision or cancel.is_set():
+                        raise Cancelled(t("preview.declined"))
+                    process.stdin.write(b"yes\n")
+                    await process.stdin.drain()
+                elif "result" in event:
                     result = event["result"]
                 elif "error" in event:
                     failure = (FormatExpired if event.get("expired") else UserError)(event["error"])
@@ -163,7 +170,11 @@ async def execute(request: dict, downloads: Path, lock: int, cancel: asyncio.Eve
             from .compression import unchanged
 
             unchanged(request["source"])
+            progress = {"stage": "stage.preview_save", "done": 99, "total": 100}
+            update(progress)
+            failure_stage = progress["stage"]
             result["path"] = str(save("source", "verified.mp4", result["stem"]))
+            update(progress | {"done": 100, "finished": True})
         if request["operation"] == "local_subtitles":
             from .compression import unchanged
 

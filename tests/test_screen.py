@@ -570,3 +570,150 @@ def test_aspect_custom_input_in_main_screen(tmp_path, monkeypatch):
             await until(lambda: submitted == ["7:5"])
 
     asyncio.run(scenario())
+
+
+def test_mac_preview_tui_exports_report_2_profile(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    from ytdock.storage import instance_lock
+
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    if not ffmpeg or not ffprobe:
+        pytest.skip("requires FFmpeg and ffprobe")
+    encoders = subprocess.check_output([ffmpeg, "-v", "error", "-encoders"])
+    if b"libaom-av1" not in encoders:
+        pytest.skip("requires AV1 fixture encoder")
+    source = tmp_path / "sample.mp4"
+    subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=s=1920x1080:r=30:d=2",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=44100:cl=stereo",
+            "-shortest",
+            "-c:v",
+            "libaom-av1",
+            "-cpu-used",
+            "8",
+            "-usage",
+            "realtime",
+            "-c:a",
+            "aac",
+            str(source),
+        ],
+        check=True,
+    )
+    original = source.read_bytes()
+    events = []
+    execute = ui.execute
+
+    async def observe(request, downloads, lock, cancel, update):
+        def relay(event):
+            events.append(event)
+            if event.get("finished"):
+                assert (downloads / "sample.preview.mp4").is_file()
+            update(event)
+
+        return await execute(request, downloads, lock, cancel, relay)
+
+    monkeypatch.setattr(ui, "execute", observe)
+
+    async def scenario(lock):
+        async with running(tmp_path) as (screen, pipe):
+            screen.paths.update(ffmpeg=ffmpeg, ffprobe=ffprobe)
+            screen.lock = lock
+            await navigate(screen, pipe, "preview")
+            pipe.send_text(str(source) + "\r")
+            await until(lambda: screen.records and screen.records[0].status == "choosing")
+            pipe.send_text("\r")
+            async with asyncio.timeout(40):
+                while screen.records[0].ended_tick is None:
+                    await asyncio.sleep(0.03)
+            record = screen.records[0]
+            assert record.status == "succeeded", record.reason
+            output = Path(record.result["path"])
+            assert output == tmp_path / "sample.preview.mp4"
+            assert output.stat().st_size <= source.stat().st_size * 1.3
+            assert "100%" in screen.notification()
+            assert record.result["path"] in screen.notification()
+            assert not screen.processing
+
+    with instance_lock(tmp_path / "state") as lock:
+        asyncio.run(scenario(lock))
+    percentages = [event["done"] for event in events if "done" in event]
+    assert percentages == sorted(percentages)
+    assert percentages[0] == 0 and percentages[-1] == 100
+    assert any(5 < value <= 85 for value in percentages)
+    assert source.read_bytes() == original
+    assert not list(tmp_path.glob(".ytdock-task-*"))
+
+
+def test_mac_preview_oversize_decision(tmp_path, monkeypatch):
+    import shutil
+    import subprocess
+
+    from ytdock.storage import instance_lock
+
+    ffmpeg, ffprobe = shutil.which("ffmpeg"), shutil.which("ffprobe")
+    if not ffmpeg or not ffprobe:
+        pytest.skip("requires FFmpeg and ffprobe")
+    source = tmp_path / "small.mp4"
+    subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc2=s=320x180:r=25:d=4",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "42",
+            str(source),
+        ],
+        check=True,
+    )
+    questions = []
+    execute = ui.execute
+
+    async def observe(request, downloads, lock, cancel, update):
+        def relay(event):
+            if question := event.get("preview_confirmation"):
+                questions.append(question)
+            return update(event)
+
+        return await execute(request, downloads, lock, cancel, relay)
+
+    monkeypatch.setattr(ui, "execute", observe)
+
+    async def choose(lock, answer):
+        async with running(tmp_path) as (screen, pipe):
+            screen.paths.update(ffmpeg=ffmpeg, ffprobe=ffprobe)
+            screen.lock = lock
+            await navigate(screen, pipe, "preview")
+            pipe.send_text(str(source) + "\r")
+            await until(lambda: screen.records and screen.records[0].status == "choosing")
+            pipe.send_text("\x1b[B\r")
+            await until(lambda: questions)
+            assert "Actual output" in questions.pop() and not list(tmp_path.glob("*.preview.mp4"))
+            pipe.send_text(answer)
+            await until(lambda: screen.records[0].ended_tick is not None)
+            return screen.records[0].status
+
+    with instance_lock(tmp_path / "state") as lock:
+        assert asyncio.run(choose(lock, "n")) == "cancelled"
+        assert not list(tmp_path.glob("*.preview.mp4"))
+        assert asyncio.run(choose(lock, "y")) == "succeeded"
+    assert (tmp_path / "small.preview.mp4").stat().st_size * 10 > source.stat().st_size * 13
+    assert not list(tmp_path.glob(".ytdock-task-*"))

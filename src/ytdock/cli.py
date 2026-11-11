@@ -14,6 +14,18 @@ async def session(paths, downloads, lock):
     return await run(paths, downloads, lock)
 
 
+def confirm_preview_size(question):
+    print(question, file=sys.stderr, flush=True)
+    for line in sys.stdin:
+        answer = line.strip().lower()
+        if answer in ("yes", "y"):
+            return True
+        if answer in ("no", "n", ""):
+            break
+        print(question, file=sys.stderr, flush=True)
+    return False
+
+
 def main():
     if len(sys.argv) == 5 and sys.argv[1] == "--upgrade-worker":
         from .upgrade import worker
@@ -45,6 +57,7 @@ def main():
         "--uninstall", action="store_true", help=t("uninstall_the_app_and_keep_your_videos")
     )
     actions.add_argument("--mac-preview", metavar="FILE", help=t("preview.help"))
+    parser.add_argument("--preview-quality", action="store_true", help=t("preview.quality"))
     parser.add_argument("--burn-forced", action="store_true", help=t("preview.burn"))
     parser.add_argument("--prefix", help=t("installation_prefix_default_local"))
     parser.add_argument("--ffmpeg-dir", help=t("preferred_directory_containing_ffmpeg_ffprobe"))
@@ -52,6 +65,8 @@ def main():
     parser.add_argument("--ffprobe", help=t("preferred_ffprobe_executable"))
     args = parser.parse_args()
     media_options = dict(directory=args.ffmpeg_dir, ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
+    if args.preview_quality and not args.mac_preview:
+        parser.error(t("preview.quality_requires_file"))
     if args.burn_forced and not args.mac_preview:
         parser.error(t("preview.burn_requires_file"))
     if args.prefix and not (args.install or args.uninstall):
@@ -67,7 +82,16 @@ def main():
             if not path.is_file():
                 raise UserError(t("file_not_found_check_the_path"))
             tools = find_media_tools(**media_options)
-            print(export(path, path.parent, **tools, burn_forced=args.burn_forced))
+            print(
+                export(
+                    path,
+                    path.parent,
+                    **tools,
+                    burn_forced=args.burn_forced,
+                    match_size=not args.preview_quality,
+                    confirm=confirm_preview_size,
+                )
+            )
             return 0
         if args.version:
             from .version import get_version

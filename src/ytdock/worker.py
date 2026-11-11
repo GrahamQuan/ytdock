@@ -118,13 +118,20 @@ def work(request: dict):
         if request["operation"] == "inspect_preview":
             result = read_source(Path(request["path"]), request["ffprobe"])
         else:
-            emit({"stage": "stage.preview"})
+
+            def confirm(question):
+                emit({"preview_confirmation": question})
+                return sys.stdin.readline().strip() == "yes"
+
             stem = convert(
                 request["source"],
                 Path(request["directory"]),
                 request["ffmpeg"],
                 request["ffprobe"],
                 request.get("burn_forced", False),
+                update=emit,
+                match_size=request.get("match_size", True),
+                confirm=confirm,
             )
             result = {"stem": stem}
         emit({"result": result})

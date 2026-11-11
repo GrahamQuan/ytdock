@@ -195,3 +195,16 @@ def test_preview_worker_reads_verifies_publishes_and_cancels(tmp_path):
         asyncio.run(scenario(lock))
     assert len(list(tmp_path.glob("*.mp4"))) == 1
     assert not list(tmp_path.glob(".ytdock-task-*"))
+
+
+def test_preview_stalled_ffmpeg_exits_even_with_repeated_heartbeats(tmp_path):
+    from ytdock.preview import run_ffmpeg
+
+    fake = tmp_path / "ffmpeg"
+    fake.write_text(
+        f"#!{sys.executable}\nimport time\nwhile True:\n"
+        " print('out_time_us=1000', flush=True)\n time.sleep(0.02)\n"
+    )
+    fake.chmod(0o755)
+    with pytest.raises(UserError, match="FFmpeg"):
+        run_ffmpeg([str(fake)], 2, lambda _: None, stall_timeout=0.25)

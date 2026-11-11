@@ -3,14 +3,17 @@
 import heapq
 import json
 import math
+import os
 import re
+import selectors
 import subprocess
+import time
 from fractions import Fraction
 from pathlib import Path
 from tempfile import TemporaryFile
 
 from .compression import FORMATS, identity, main_stream, unchanged
-from .core import UserError, filename, safe_text
+from .core import UserError, filename, safe_text, size
 from .i18n import t
 from .media import faststart
 from .storage import Task, publish
@@ -26,6 +29,73 @@ def invoke(args, cwd=None):
         detail = result.stderr[-4096:].decode(errors="replace").strip()
         raise UserError(f"{Path(args[0]).name}: {detail}")
     return result.stdout
+
+
+def run_ffmpeg(args, duration, advance, cwd=None, *, stall_timeout=600):
+    """Drain FFmpeg progress while keeping diagnostics off the event pipe."""
+    with (
+        TemporaryFile() as errors,
+        subprocess.Popen(
+            [args[0], "-nostats", "-progress", "pipe:1", *args[1:]],
+            cwd=cwd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+        ) as process,
+        selectors.DefaultSelector() as selector,
+    ):
+        selector.register(process.stdout, selectors.EVENT_READ)
+        deadline = time.monotonic() + stall_timeout
+        partial = b""
+        highest = {}
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not selector.select(remaining):
+                    raise subprocess.TimeoutExpired(args, stall_timeout)
+                chunk = os.read(process.stdout.fileno(), 8192)
+                if not chunk:
+                    break
+                *lines, partial = (partial + chunk).split(b"\n")
+                for line in lines:
+                    key, _, value = line.strip().partition(b"=")
+                    if key not in (b"frame", b"out_time_us", b"total_size"):
+                        continue
+                    if value.strip().isdigit() and int(value) > highest.get(key, -1):
+                        highest[key] = int(value)
+                        deadline = time.monotonic() + stall_timeout
+                        if key == b"out_time_us" and duration > 0:
+                            advance(int(value) / (duration * 1_000_000))
+            process.wait(timeout=max(0, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise UserError(t("preview.stalled")) from None
+        if process.returncode:
+            errors.seek(max(0, errors.tell() - 4096))
+            raise UserError(
+                f"{Path(args[0]).name}: {errors.read().decode(errors='replace').strip()}"
+            )
+
+
+def phase(update, stage, start, end):
+    # Integer steps bound worker IPC even for millions of packets.
+    previous = start - 1
+
+    def advance(fraction):
+        nonlocal previous
+        value = start + int((end - start) * min(1, max(0, fraction)))
+        if value > previous:
+            previous = value
+            if update:
+                update({"stage": stage, "done": value, "total": 100})
+
+    advance(0)
+    return advance
 
 
 def inspect(path, ffprobe):
@@ -57,10 +127,11 @@ def rates(video):
     return [rational(video.get(key)) for key in ("avg_frame_rate", "r_frame_rate")]
 
 
-def packet_stats(path, ffprobe, video, audio):
+def packet_stats(path, ffprobe, video, audio, advance=None):
     """Read timing in bounded memory, including containers without per-track durations."""
     indexes = [video["index"]] + ([audio["index"]] if audio else [])
     bounds = {index: [math.inf, -math.inf] for index in indexes}
+    video_bytes = audio_bytes = 0
     pending = []
     last_pts = last_dts = None
     buffered = 0.0
@@ -81,7 +152,7 @@ def packet_stats(path, ffprobe, video, audio):
         *LOCAL_INPUT,
         "-show_packets",
         "-show_entries",
-        "packet=stream_index,pts_time,dts_time,duration_time,size",
+        "packet=stream_index,pts_time,dts_time,duration_time,size,pos",
         "-of",
         "compact=p=0:nk=0",
         str(path),
@@ -92,8 +163,11 @@ def packet_stats(path, ffprobe, video, audio):
             args, stdout=subprocess.PIPE, stderr=errors, stdin=subprocess.DEVNULL, text=True
         ) as process,
     ):
+        size = max(1, path.stat().st_size)
         for line in process.stdout:
             row = dict(field.split("=", 1) for field in line.strip().split("|") if "=" in field)
+            if advance and (pos := row.get("pos", "")).isdigit():
+                advance(int(pos) / size)
             index = int(row.get("stream_index", -1))
             if index not in bounds or row.get("pts_time") in (None, "N/A"):
                 continue
@@ -104,7 +178,9 @@ def packet_stats(path, ffprobe, video, audio):
             start, end = bounds[index]
             bounds[index] = [min(start, pts), max(end, pts + duration)]
             if index != video["index"]:
+                audio_bytes += int(row["size"])
                 continue
+            video_bytes += int(row["size"])
             heapq.heappush(pending, pts)
             if len(pending) > 32:
                 observe(heapq.heappop(pending))
@@ -123,7 +199,7 @@ def packet_stats(path, ffprobe, video, audio):
         observe(heapq.heappop(pending))
     if any(not math.isfinite(start) or end < start for start, end in bounds.values()):
         raise UserError(t("preview.timeline"))
-    return list(bounds.values()), cadence_ok, peak_ok
+    return list(bounds.values()), cadence_ok, peak_ok, video_bytes, audio_bytes
 
 
 def dimensions(video):
@@ -296,7 +372,25 @@ def read_source(path, ffprobe):
     }
 
 
-def convert(source, directory, ffmpeg, ffprobe, burn_forced=False):
+def size_question(source_bytes, output_bytes, estimated):
+    return t(
+        "preview.estimated_size" if estimated else "preview.actual_size",
+        source=size(source_bytes),
+        output=size(output_bytes),
+        percent=f"{100 * output_bytes / source_bytes:.2f}",
+    )
+
+
+def convert(
+    source,
+    directory,
+    ffmpeg,
+    ffprobe,
+    burn_forced=False,
+    update=None,
+    match_size=True,
+    confirm=None,
+):
     path = Path(source["path"])
     video, audio, forced = source["video"], source["audio"], source["forced"]
     if burn_forced and not forced:
@@ -316,7 +410,49 @@ def convert(source, directory, ffmpeg, ffprobe, burn_forced=False):
             )
     width, height = dimensions(video)
     unchanged(source)
-    before, cadence_ok, peak_ok = packet_stats(path, ffprobe, video, audio)
+    before, cadence_ok, peak_ok, video_bytes, audio_bytes = packet_stats(
+        path, ffprobe, video, audio, phase(update, "stage.preview_scan", 0, 5)
+    )
+    duration = max(end for _, end in before) - min(start for start, _ in before)
+    source_bytes = path.stat().st_size
+    approved_bytes = source_bytes * 13 // 10
+
+    def check_size(output_bytes, estimated):
+        nonlocal approved_bytes
+        if output_bytes <= approved_bytes:
+            return
+        question = size_question(source_bytes, output_bytes, estimated)
+        if confirm is None or not confirm(question):
+            from .controller import Cancelled
+
+            raise Cancelled(t("preview.declined") if confirm else question)
+        approved_bytes = output_bytes
+
+    vcopy = (
+        compatible_video(video)
+        and cadence_ok
+        and peak_ok
+        and not burn_forced
+        and reference_frames_fit(path, ffmpeg, video)
+    )
+    audio_rate = 160_000
+    video_rate = None
+    overhead = source_bytes * 0.02 + min(1500, source_bytes * 0.1)
+    video_duration = before[0][1] - before[0][0]
+    if audio and not compatible_audio(audio):
+        audio_duration = before[1][1] - before[1][0]
+        if match_size:
+            available_bits = (source_bytes - overhead) * 8
+            audio_rate = min(
+                160_000, max(16_000, int(available_bits * 0.15 / max(audio_duration, 0.001)))
+            )
+        audio_bytes = audio_rate * audio_duration / 8
+    if match_size and not vcopy:
+        budget = source_bytes - overhead - audio_bytes
+        video_rate = min(20_000_000, max(1000, int(budget * 8 / max(video_duration, 0.001))))
+        video_bytes = video_rate * video_duration / 8
+    if vcopy or match_size:
+        check_size(round(video_bytes + audio_bytes + overhead), True)
     out = directory / "verified.mp4"
     write_preview(
         path,
@@ -327,24 +463,37 @@ def convert(source, directory, ffmpeg, ffprobe, burn_forced=False):
         forced if burn_forced else None,
         width,
         height,
+        vcopy,
         cadence_ok,
-        peak_ok,
+        duration,
+        phase(update, "stage.preview", 5, 85),
+        video_rate,
+        audio_rate,
+        check_size,
     )
-    verify_preview(out, ffmpeg, ffprobe, width, height, audio, before)
+    check_size(out.stat().st_size, False)
+    verify_preview(out, ffmpeg, ffprobe, width, height, audio, before, duration, update)
     unchanged(source)
     return filename(path.stem, "local").removesuffix(" [local]") + ".preview"
 
 
 def write_preview(
-    path, directory, ffmpeg, video, audio, forced, width, height, cadence_ok, peak_ok
+    path,
+    directory,
+    ffmpeg,
+    video,
+    audio,
+    forced,
+    width,
+    height,
+    vcopy,
+    cadence_ok,
+    duration,
+    advance,
+    video_rate,
+    audio_rate,
+    check_size,
 ):
-    vcopy = (
-        compatible_video(video)
-        and cadence_ok
-        and peak_ok
-        and not forced
-        and reference_frames_fit(path, ffmpeg, video)
-    )
     acopy = audio is not None and compatible_audio(audio)
     out = directory / "verified.mp4"
     args = [ffmpeg, "-v", "error", "-xerror", "-nostdin", "-n", *LOCAL_INPUT, "-i", str(path)]
@@ -414,6 +563,8 @@ def write_preview(
             "[preview]",
             "-c:v",
             "libx264",
+            "-preset",
+            "veryfast",
             "-profile:v",
             "high",
             "-level:v",
@@ -424,8 +575,6 @@ def write_preview(
             "20M",
             "-bufsize",
             "25M",
-            "-crf",
-            "20",
             "-fps_mode",
             "passthrough",
             "-pix_fmt",
@@ -439,6 +588,17 @@ def write_preview(
             "-color_primaries",
             "bt709",
         ]
+        if video_rate is None:
+            args += ["-crf", "20"]
+        else:
+            args += ["-b:v", str(video_rate), "-passlogfile", "preview-pass"]
+            run_ffmpeg(
+                [*args, "-pass", "1", "-an", "-f", "null", "-"],
+                duration,
+                lambda value: advance(value / 2),
+                directory,
+            )
+            args += ["-pass", "2"]
     if audio:
         args += ["-map", f"0:{audio['index']}", "-c:a", "copy" if acopy else "aac"]
         if not acopy:
@@ -447,7 +607,7 @@ def write_preview(
                 "-profile:a",
                 "aac_low",
                 "-b:a",
-                "160k",
+                str(audio_rate),
                 "-ac",
                 str(min(audio["channels"], 2)),
                 "-ar",
@@ -466,10 +626,27 @@ def write_preview(
         "mp4",
         str(out),
     ]
-    invoke(args, directory)
+    # CRF has no target bitrate. Sample the middle of longer videos with the
+    # actual export settings before committing to the full encode.
+    if not vcopy and video_rate is None and duration >= 30:
+        sample_seconds = min(8, duration / 10)
+        sample = directory / "estimate.mp4"
+        sample_args = args.copy()
+        sample_args[sample_args.index("-i") : sample_args.index("-i")] = [
+            "-ss",
+            str((duration - sample_seconds) / 2),
+        ]
+        sample_args[-1:] = ["-t", str(sample_seconds), str(sample)]
+        run_ffmpeg(sample_args, sample_seconds, lambda _: None, directory)
+        estimate = round(sample.stat().st_size * duration / sample_seconds)
+        sample.unlink()
+        check_size(estimate, True)
+    second_pass = video_rate is not None and not vcopy
+    run_ffmpeg(args, duration, lambda v: advance((1 + v) / 2 if second_pass else v), directory)
 
 
-def verify_preview(out, ffmpeg, ffprobe, width, height, audio, before):
+def verify_preview(out, ffmpeg, ffprobe, width, height, audio, before, duration, update):
+    scan = phase(update, "stage.preview_check", 85, 90)
     result = inspect(out, ffprobe)
     picture = main_stream(result["streams"], "video")
     sound = main_stream(result["streams"], "audio")
@@ -483,7 +660,9 @@ def verify_preview(out, ffmpeg, ffprobe, width, height, audio, before):
         or not faststart(out)
     ):
         raise UserError(t("preview.verify"))
-    after, actual_cadence_ok, actual_peak_ok = packet_stats(out, ffprobe, picture, sound)
+    after, actual_cadence_ok, actual_peak_ok, _, _ = packet_stats(
+        out, ffprobe, picture, sound, scan
+    )
     if not actual_cadence_ok or not actual_peak_ok:
         raise UserError(t("preview.verify"))
     # Compare both track boundaries against the same video origin. AAC priming
@@ -492,7 +671,7 @@ def verify_preview(out, ffmpeg, ffprobe, width, height, audio, before):
         for src, dst in zip(original, converted, strict=True):
             if abs((src - before[0][0]) - (dst - after[0][0])) > 0.15:
                 raise UserError(t("preview.timeline"))
-    invoke(
+    run_ffmpeg(
         [
             ffmpeg,
             "-v",
@@ -508,11 +687,22 @@ def verify_preview(out, ffmpeg, ffprobe, width, height, audio, before):
             "-f",
             "null",
             "-",
-        ]
+        ],
+        duration,
+        phase(update, "stage.preview_decode", 90, 99),
     )
 
 
-def export(path, destination, ffmpeg, ffprobe, burn_forced=False, notify=print):
+def export(
+    path,
+    destination,
+    ffmpeg,
+    ffprobe,
+    burn_forced=False,
+    notify=print,
+    match_size=True,
+    confirm=None,
+):
     source = read_source(path, ffprobe)
     if audio := source["audio"]:
         notify(
@@ -526,7 +716,9 @@ def export(path, destination, ffmpeg, ffprobe, burn_forced=False, notify=print):
         notify(t("preview.forced", index=forced["index"]))
     task = Task(destination)
     try:
-        stem = convert(source, task.path, ffmpeg, ffprobe, burn_forced)
+        stem = convert(
+            source, task.path, ffmpeg, ffprobe, burn_forced, match_size=match_size, confirm=confirm
+        )
         return publish(task.path / "verified.mp4", destination, stem)
     finally:
         task.cleanup()

@@ -80,10 +80,12 @@ async def run_mode(screen, mode):
                         {
                             "operation": "mac_preview",
                             "source": info,
-                            "burn_forced": option == "preview.burn",
+                            "match_size": option in ("preview.export", "preview.burn"),
+                            "burn_forced": option in ("preview.burn", "preview.quality_burn"),
                         }
                     )
-                    if option in ("preview.export", "preview.burn")
+                    if option
+                    in ("preview.export", "preview.burn", "preview.quality", "preview.quality_burn")
                     else None
                 )
             elif mode == "aspect":

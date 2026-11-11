@@ -263,6 +263,10 @@ async def select_local_export(info, downloads, *, preview):
     options = ["preview.export" if preview else "local_subtitles.continue"]
     if preview and info["forced"]:
         options.append("preview.burn")
+    if preview:
+        options.append("preview.quality")
+        if info["forced"]:
+            options.append("preview.quality_burn")
     options.append("local_subtitles.cancel")
     index = 0
     bindings = KeyBindings()
@@ -756,9 +760,26 @@ async def busy(request, downloads, lock):
     bindings = KeyBindings()
     saved = {}
     notices = []
+    decision = None
+    question = ""
+    choosing = Condition(lambda: decision is not None and not decision.done())
+
+    @bindings.add("Y", filter=choosing)
+    @bindings.add("y", filter=choosing)
+    def accept_size(event):
+        decision.set_result(True)
+        event.app.invalidate()
+
+    @bindings.add("N", filter=choosing)
+    @bindings.add("n", filter=choosing)
+    def decline_size(event):
+        decision.set_result(False)
+        event.app.invalidate()
 
     def cancel_task(event):
         cancel.set()
+        if choosing():
+            decision.set_result(False)
         state.clear()
         state["stage"] = "stage.cancelling"
         event.app.invalidate()
@@ -766,7 +787,16 @@ async def busy(request, downloads, lock):
     exit_bindings(bindings, cancel_task)
 
     def update(event):
+        nonlocal decision, question
         from .screen import current_screen
+
+        if "preview_confirmation" in event:
+            decision = asyncio.get_running_loop().create_future()
+            question = event["preview_confirmation"]
+            if cancel.is_set():
+                decision.set_result(False)
+            app.invalidate()
+            return decision
 
         if screen := current_screen():
             screen.record_event(event)
@@ -812,7 +842,13 @@ async def busy(request, downloads, lock):
                     ConditionalContainer(
                         Label(lambda: "\n".join(notices)), filter=Condition(lambda: bool(notices))
                     ),
-                    Label(lambda: status_text(state, int(time.monotonic() * 10))),
+                    Label(
+                        lambda: (
+                            question
+                            if choosing()
+                            else status_text(state, int(time.monotonic() * 10))
+                        )
+                    ),
                     Label(t("ctrl_c_cancel_and_clean_up"), style="class:hint"),
                 ]
             )
@@ -843,6 +879,8 @@ async def busy(request, downloads, lock):
     finally:
         if job and not job.done():
             cancel.set()
+            if choosing():
+                decision.set_result(False)
             await job
     if isinstance(result, Exception):
         raise result

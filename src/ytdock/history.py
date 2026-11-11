@@ -59,6 +59,8 @@ class Record:
 
     def notification(self):
         result = self.summary()
+        if self.mode == "preview" and self.status == "succeeded" and self.result.get("path"):
+            result += " · 100%\n" + safe_text(self.result["path"])
         if self.status == "cancelled" and self.cleanup and self.cleanup["ok"]:
             result += " · " + t("task.cleanup_ok")
         if self.cleanup and not self.cleanup["ok"]:
