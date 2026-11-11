@@ -71,6 +71,21 @@ async def run_mode(screen, mode):
                         record.notices.append(str(exc))
                         screen.notices[mode] = str(exc)
                         screen.app.invalidate()
+            elif mode == "preview":
+                info = await busy({"operation": "inspect_preview", "path": str(local_path(text))})
+                record.title, record.status = info["title"], "choosing"
+                option = await ui.select_local_export(info, screen.downloads, preview=True)
+                result = (
+                    await busy(
+                        {
+                            "operation": "mac_preview",
+                            "source": info,
+                            "burn_forced": option == "preview.burn",
+                        }
+                    )
+                    if option in ("preview.export", "preview.burn")
+                    else None
+                )
             elif mode == "aspect":
                 info = await busy(
                     {"operation": "inspect_local", "path": str(local_path(text)), "mode": mode}

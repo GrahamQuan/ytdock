@@ -159,6 +159,11 @@ async def execute(request: dict, downloads: Path, lock: int, cancel: asyncio.Eve
 
     try:
         result = await invoke(request)
+        if request["operation"] == "mac_preview":
+            from .compression import unchanged
+
+            unchanged(request["source"])
+            result["path"] = str(save("source", "verified.mp4", result["stem"]))
         if request["operation"] == "local_subtitles":
             from .compression import unchanged
 

@@ -112,6 +112,23 @@ def download_stream(info: dict, fmt: dict, path: Path, stage: str, quickjs: str)
 
 
 def work(request: dict):
+    if request["operation"] in ("inspect_preview", "mac_preview"):
+        from .preview import convert, read_source
+
+        if request["operation"] == "inspect_preview":
+            result = read_source(Path(request["path"]), request["ffprobe"])
+        else:
+            emit({"stage": "stage.preview"})
+            stem = convert(
+                request["source"],
+                Path(request["directory"]),
+                request["ffmpeg"],
+                request["ffprobe"],
+                request.get("burn_forced", False),
+            )
+            result = {"stem": stem}
+        emit({"result": result})
+        return
     if request["operation"] in ("inspect_subtitles", "local_subtitles"):
         from .local_subtitles import inspect as inspect_subtitles
         from .local_subtitles import process as process_subtitles
@@ -310,7 +327,14 @@ def main():
                     else t("local_video_processing_failed_check_the_file_disk_space_and")
                 )
                 if request.get("operation")
-                in ("inspect_local", "compress", "repair_aspect", "burn_subtitles")
+                in (
+                    "inspect_local",
+                    "compress",
+                    "repair_aspect",
+                    "burn_subtitles",
+                    "mac_preview",
+                    "inspect_preview",
+                )
                 else provider_error(exc)
             )
         )

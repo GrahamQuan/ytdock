@@ -44,15 +44,31 @@ def main():
     actions.add_argument(
         "--uninstall", action="store_true", help=t("uninstall_the_app_and_keep_your_videos")
     )
+    actions.add_argument("--mac-preview", metavar="FILE", help=t("preview.help"))
+    parser.add_argument("--burn-forced", action="store_true", help=t("preview.burn"))
     parser.add_argument("--prefix", help=t("installation_prefix_default_local"))
     parser.add_argument("--ffmpeg-dir", help=t("preferred_directory_containing_ffmpeg_ffprobe"))
     parser.add_argument("--ffmpeg", help=t("preferred_ffmpeg_executable"))
     parser.add_argument("--ffprobe", help=t("preferred_ffprobe_executable"))
     args = parser.parse_args()
     media_options = dict(directory=args.ffmpeg_dir, ffmpeg=args.ffmpeg, ffprobe=args.ffprobe)
+    if args.burn_forced and not args.mac_preview:
+        parser.error(t("preview.burn_requires_file"))
     if args.prefix and not (args.install or args.uninstall):
         parser.error(t("prefix_is_only_available_for_installation_or_removal"))
     try:
+        if args.mac_preview:
+            from pathlib import Path
+
+            from .ffmpeg import find_media_tools
+            from .preview import export
+
+            path = Path(args.mac_preview).expanduser().resolve()
+            if not path.is_file():
+                raise UserError(t("file_not_found_check_the_path"))
+            tools = find_media_tools(**media_options)
+            print(export(path, path.parent, **tools, burn_forced=args.burn_forced))
+            return 0
         if args.version:
             from .version import get_version
 

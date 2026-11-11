@@ -34,7 +34,7 @@ async def running(tmp_path, output=None):
         screen = Screen({}, tmp_path, 0)
         task = asyncio.create_task(screen.run())
         try:
-            await until(lambda: len(screen.pages) == 4 or task.done())
+            await until(lambda: len(screen.pages) == 5 or task.done())
             if task.done():
                 await task
             yield screen, pipe
@@ -78,7 +78,7 @@ async def navigate(screen, pipe, mode):
     await until(lambda: screen.app.layout.current_control is not screen.nav_control)
 
 
-def test_one_application_five_tabs_cursor_and_language(tmp_path, monkeypatch):
+def test_one_application_six_tabs_cursor_and_language(tmp_path, monkeypatch):
     monkeypatch.setattr(
         ui, "ToolkitApplication", lambda **kwargs: pytest.fail("Nested Application")
     )
@@ -110,7 +110,7 @@ def test_one_application_five_tabs_cursor_and_language(tmp_path, monkeypatch):
             assert screen.active == "download"
             pipe.send_text("\x1b[Z")
             await until(lambda: screen.app.layout.current_control is screen.nav_control)
-            for mode in ("tasks", "subtitles", "aspect", "compress", "download"):
+            for mode in ("tasks", "preview", "subtitles", "aspect", "compress", "download"):
                 pipe.send_text("\x1b[D")
                 await until(lambda: screen.active == mode)
                 assert screen.app.layout.current_control is screen.nav_control
@@ -210,8 +210,8 @@ def test_reselection_and_back_share_record(tmp_path, monkeypatch):
             selected_control = screen.app.layout.current_control
             selected_text = selected_control.text()
             for key, modes in (
-                ("\t", ("compress", "aspect", "subtitles", "tasks", "download")),
-                ("\x1b[Z", ("tasks", "subtitles", "aspect", "compress", "download")),
+                ("\t", ("compress", "aspect", "subtitles", "preview", "tasks", "download")),
+                ("\x1b[Z", ("tasks", "preview", "subtitles", "aspect", "compress", "download")),
             ):
                 for mode in modes:
                     await navigate(screen, pipe, mode)
@@ -340,7 +340,7 @@ except RuntimeError:
         os.close(master)
 
 
-@pytest.mark.parametrize("mode", ["compress", "subtitles"])
+@pytest.mark.parametrize("mode", ["compress", "subtitles", "preview"])
 @pytest.mark.parametrize("finish", ["success", "error", "cancel", "back"])
 def test_feature_results_keep_or_clear_inputs(tmp_path, monkeypatch, mode, finish):
     video = tmp_path / "source.mp4"
@@ -362,6 +362,7 @@ def test_feature_results_keep_or_clear_inputs(tmp_path, monkeypatch, mode, finis
                 audio=None,
                 audio_count=0,
                 captions=dict(count=1, adjusted=0),
+                forced=None,
             )
         entered.set()
         if finish == "cancel":

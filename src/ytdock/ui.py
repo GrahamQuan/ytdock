@@ -196,7 +196,7 @@ def language_bindings(bindings):
         app.invalidate()
 
 
-MODES = ("download", "compress", "aspect", "subtitles", "tasks")
+MODES = ("download", "compress", "aspect", "subtitles", "preview", "tasks")
 
 
 def navigation(mode):
@@ -256,6 +256,14 @@ async def read_subtitle_input(text):
 
 
 async def select_local_subtitles(info, downloads):
+    return await select_local_export(info, downloads, preview=False)
+
+
+async def select_local_export(info, downloads, *, preview):
+    options = ["preview.export" if preview else "local_subtitles.continue"]
+    if preview and info["forced"]:
+        options.append("preview.burn")
+    options.append("local_subtitles.cancel")
     index = 0
     bindings = KeyBindings()
     language_bindings(bindings)
@@ -268,11 +276,11 @@ async def select_local_subtitles(info, downloads):
     @bindings.add("down")
     def down(event):
         nonlocal index
-        index = min(1, index + 1)
+        index = min(len(options) - 1, index + 1)
 
     @bindings.add("enter")
     def submit(event):
-        event.app.exit(result=index == 0)
+        event.app.exit(result=options[index] if preview else index == 0)
 
     @bindings.add("escape")
     def back(event):
@@ -282,6 +290,17 @@ async def select_local_subtitles(info, downloads):
 
     def details():
         audio = info["audio"]
+        if preview:
+            audio_label = (
+                t(
+                    "preview.audio",
+                    index=audio["index"],
+                    language=safe_text(audio.get("tags", {}).get("language", "und")),
+                )
+                if audio
+                else t("no_audio_no_track_will_be_added")
+            )
+            return f"{audio_label} · {downloads}"
         audio_text = (
             t("no_audio_no_track_will_be_added")
             if audio is None
@@ -301,13 +320,15 @@ async def select_local_subtitles(info, downloads):
 
     def rows():
         result = []
-        for i, key in enumerate(("local_subtitles.continue", "local_subtitles.cancel")):
+        for i, key in enumerate(options):
             if i == index:
                 result.append(("[SetCursorPosition]", ""))
             result.append(
                 (
                     "class:selected" if i == index else "",
-                    ("❯ " if i == index else "  ") + t(key) + ("\n" if i == 0 else ""),
+                    ("❯ " if i == index else "  ")
+                    + t(key)
+                    + ("\n" if i < len(options) - 1 else ""),
                 )
             )
         return result
@@ -317,9 +338,12 @@ async def select_local_subtitles(info, downloads):
         layout=Layout(
             HSplit(
                 [
-                    navigation_label("subtitles"),
+                    navigation_label("preview" if preview else "subtitles"),
                     Label(
-                        f"{info['title']} · {info['choice']['width']}×{info['choice']['height']} · "
+                        info["title"]
+                        if preview
+                        else f"{info['title']} · "
+                        f"{info['choice']['width']}×{info['choice']['height']} · "
                         f"{info['choice']['fps']:g}fps · {clock(info['duration'])}"
                     ),
                     Label(details),
@@ -330,7 +354,9 @@ async def select_local_subtitles(info, downloads):
                                 milliseconds=info["captions"].get("shortened_ms", 0),
                             )
                         ),
-                        filter=Condition(lambda: bool(info["captions"]["adjusted"])),
+                        filter=Condition(
+                            lambda: not preview and bool(info["captions"]["adjusted"])
+                        ),
                     ),
                     Frame(choice_window(control), title=lambda: t("local_subtitles.choose_action")),
                     shortcuts(lambda: t("local_subtitles.confirm_hint")),
@@ -716,7 +742,15 @@ async def busy(request, downloads, lock):
     state = {
         "stage": "stage.reading_information"
         if request.get("operation")
-        in ("inspect_local", "compress", "repair_aspect", "inspect_subtitles", "local_subtitles")
+        in (
+            "inspect_local",
+            "compress",
+            "repair_aspect",
+            "inspect_subtitles",
+            "local_subtitles",
+            "inspect_preview",
+            "mac_preview",
+        )
         else "stage.fetching_information"
     }
     bindings = KeyBindings()
@@ -755,7 +789,9 @@ async def busy(request, downloads, lock):
             HSplit(
                 [
                     navigation_label(
-                        "aspect"
+                        "preview"
+                        if request.get("operation") in ("inspect_preview", "mac_preview")
+                        else "aspect"
                         if request.get("mode") == "aspect"
                         or request.get("operation") == "repair_aspect"
                         else "subtitles"

@@ -337,5 +337,21 @@
   "aspect.invalid": "Enter positive integer width:height (1:10–10:1), with output dimensions up to 8192.",
   "aspect.output": "Output: {width}×{height} · square pixels",
   "stage.repairing_aspect": "Repairing aspect ratio",
-  "aspect.complete": "Processing complete\nInput: {p0} · Output: {p1} · {p2} {p3:.1f}%\nSaved to: {p4}"
+  "aspect.complete": "Processing complete\nInput: {p0} · Output: {p1} · {p2} {p3:.1f}%\nSaved to: {p4}",
+  "preview.help": "Export a Finder Quick Look MP4 beside the input file",
+  "preview.burn": "Burn the first forced subtitle track into the preview",
+  "preview.burn_requires_file": "--burn-forced requires --mac-preview FILE",
+  "preview.no_forced": "No forced subtitle track was found.",
+  "preview.audio": "Selected audio track {index} ({language})",
+  "preview.forced": "Forced subtitle track {index} found. Use --burn-forced to include it.",
+  "preview.matrix": "Unsupported display matrix.",
+  "preview.dovi": "Unsupported Dolby Vision profile or base layer ({profile}).",
+  "preview.color": "Incomplete color information for high-bit-depth or HDR input.",
+  "preview.verify": "Preview output failed the media profile checks.",
+  "preview.timeline": "Preview duration or audio synchronization differs from the source.",
+  "mode.preview": "Preview",
+  "preview.export": "Export preview MP4",
+  "stage.preview": "Exporting preview MP4",
+  "preview.decoder": "Missing decoder for {path}, track {index} ({codec}).",
+  "preview.filters": "Required FFmpeg filters missing: {filters}"
 }
