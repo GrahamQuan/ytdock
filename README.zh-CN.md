@@ -7,7 +7,7 @@
 - **下载视频**：支持普通视频和 Shorts，选择分辨率，可附带原语言字幕。
 - **压缩视频**：提供「体积优先」和「画质优先」，保留原分辨率和帧率。
 - **加上字幕**：导入本地视频和 SRT 字幕，生成字幕直接显示在画面上的 MP4。
-- **Mac 预览**支持将本地 MP4、MKV、MOV 导出为 Finder 快速查看用的 H.264 MP4。在终端界面选择「Mac 预览」，或运行 `ytdock --mac-preview "/路径/视频.mov"` 在原片旁保存副本。
+- **Mac 预览**支持将本地 MP4、MKV、MOV 导出为 Finder 快速查看用的 H.264 MP4。在终端界面选择「Mac Preview」，或运行 `ytdock --mac-preview "/路径/视频.mov"` 在原片旁保存副本。
 
 支持 **macOS 14 及以上、Apple Silicon（M 系列芯片）**。
 

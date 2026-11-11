@@ -349,7 +349,7 @@
   "preview.color": "高位深或 HDR 输入缺少必要的色彩信息。",
   "preview.verify": "预览副本未通过格式校验。",
   "preview.timeline": "预览副本的时长或音画同步与源文件不一致。",
-  "mode.preview": "Mac 预览",
+  "mode.preview": "Mac Preview",
   "preview.export": "导出预览 MP4",
   "stage.preview": "正在导出预览 MP4",
   "preview.decoder": "缺少解码器：{path}，轨道 {index}（{codec}）。",

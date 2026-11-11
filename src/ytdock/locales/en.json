@@ -349,7 +349,7 @@
   "preview.color": "Incomplete color information for high-bit-depth or HDR input.",
   "preview.verify": "Preview output failed the media profile checks.",
   "preview.timeline": "Preview duration or audio synchronization differs from the source.",
-  "mode.preview": "Preview",
+  "mode.preview": "Mac Preview",
   "preview.export": "Export preview MP4",
   "stage.preview": "Exporting preview MP4",
   "preview.decoder": "Missing decoder for {path}, track {index} ({codec}).",

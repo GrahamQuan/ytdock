@@ -7,7 +7,7 @@ Download YouTube videos, compress local videos, and add subtitles from your Mac 
 - **Download videos**: Save regular videos and Shorts, choose a resolution, and optionally include original-language subtitles.
 - **Compress videos**: Choose Smaller file or Higher quality while keeping the original resolution and frame rate.
 - **Add subtitles**: Combine a local video and an SRT file into an MP4 with subtitles visible directly in the picture.
-- **Mac preview** converts local MP4, MKV and MOV files to a Finder-friendly H.264 MP4. Select **Preview** in the terminal, or run `ytdock --mac-preview "/path/to/video.mov"` to save a copy beside the source.
+- **Mac preview** converts local MP4, MKV and MOV files to a Finder-friendly H.264 MP4. Select **Mac Preview** in the terminal, or run `ytdock --mac-preview "/path/to/video.mov"` to save a copy beside the source.
 
 Supports **macOS 14 or later on Apple Silicon (M-series chips)**.
 
