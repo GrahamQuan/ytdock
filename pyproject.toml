@@ -8,6 +8,7 @@ version = "0.9.0"
 description = "Bilingual interactive YouTube downloader and local video compressor for macOS"
 requires-python = ">=3.11"
 dependencies = [
+  "certifi>=2025.1.31",
   "yt-dlp[default]>=2025.11.12",
   "prompt-toolkit>=3.0.50,<4",
   "pyobjc-framework-Cocoa>=11; sys_platform == 'darwin'",

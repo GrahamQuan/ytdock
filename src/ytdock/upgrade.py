@@ -19,6 +19,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import certifi
+
 from .core import UserError
 from .i18n import get_language, set_language, t
 from .install import install_bundle, layout, owned_install, read_json, verify_bundle
@@ -50,7 +52,14 @@ def download(url, destination, limit):
         },
     )
     try:
-        with urllib.request.build_opener(HTTPSOnly()).open(request, timeout=20) as response:
+        # Frozen Python may reference a CA path that exists only on the build host.
+        # Keep system/custom roots and add the portable CA bundle shipped with the app.
+        context = ssl.create_default_context()
+        context.load_verify_locations(cafile=certifi.where())
+        opener = urllib.request.build_opener(
+            HTTPSOnly(), urllib.request.HTTPSHandler(context=context)
+        )
+        with opener.open(request, timeout=20) as response:
             if response.status != 200:
                 raise UserError(t("upgrade.network"))
             total = 0

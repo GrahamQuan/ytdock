@@ -311,3 +311,39 @@ def test_handoff_copies_updater_and_passes_lock_and_parent_pipe(installed, tmp_p
         for fd in upgrade._handoff_writers[writers_before:]:
             os.close(fd)
         del upgrade._handoff_writers[writers_before:]
+
+
+def test_download_loads_bundled_roots_without_system_certificates(tmp_path, monkeypatch):
+    import ssl
+
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    assert context.cert_store_stats()["x509_ca"] == 0
+    monkeypatch.setattr(upgrade.ssl, "create_default_context", lambda: context)
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self, size):
+            return b""
+
+    class Opener:
+        def open(self, request, timeout):
+            assert context.cert_store_stats()["x509_ca"] > 0
+            assert context.verify_mode == ssl.CERT_REQUIRED
+            assert context.check_hostname
+            return Response()
+
+    def build(*handlers):
+        assert any(isinstance(h, upgrade.HTTPSOnly) for h in handlers)
+        https = next(h for h in handlers if isinstance(h, upgrade.urllib.request.HTTPSHandler))
+        assert https._context is context
+        return Opener()
+
+    monkeypatch.setattr(upgrade.urllib.request, "build_opener", build)
+    upgrade.download(upgrade.LATEST, tmp_path / "response", 100)
