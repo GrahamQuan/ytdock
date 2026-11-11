@@ -375,7 +375,9 @@ def write_preview(
         if forced:
             needed.add("overlay" if forced["codec_name"] in BITMAP_SUBTITLES else "ass")
         available = invoke([ffmpeg, "-v", "error", "-filters"]).decode()
-        available_filters = set(re.findall(r"^\s*[.A-Z]{3} (\S+)", available, re.MULTILINE))
+        available_filters = set(
+            re.findall(r"^[ \t]*[.A-Z]+[ \t]+(\w+)[ \t]+\S+->\S+", available, re.MULTILINE)
+        )
         missing = sorted(needed - available_filters)
         if missing:
             raise UserError(t("preview.filters", filters=", ".join(missing)))
